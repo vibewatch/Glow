@@ -1,7 +1,7 @@
 "use client";
 
 import * as maplibregl from "maplibre-gl";
-import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, Marker, StyleSpecification } from "maplibre-gl";
+import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap, MapMouseEvent, Marker, StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { City, MapAnnotation, WorkspaceMode } from "@/lib/types";
 
@@ -13,20 +13,26 @@ interface WeatherMapProps {
   onPick: (latitude: number, longitude: number) => Promise<boolean>;
 }
 
-const DEFAULT_MAP_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    carto: {
-      type: "raster",
-      tiles: ["https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors © CARTO",
-      maxzoom: 20,
-    },
-  },
-  layers: [{ id: "carto-base", type: "raster", source: "carto", minzoom: 0, maxzoom: 22 }],
-};
-const MAP_STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || DEFAULT_MAP_STYLE;
+/** OpenFreeMap serves OpenMapTiles vector tiles without an API key; labels are switched to Chinese below. */
+const DEFAULT_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+const CUSTOM_MAP_STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
+const MAP_STYLE = CUSTOM_MAP_STYLE || DEFAULT_MAP_STYLE;
+const CHINESE_LABEL: ExpressionSpecification = ["coalesce", ["get", "name:zh"], ["get", "name"]];
+/** Copied from node_modules by scripts/copy-maplibre-worker.mjs; the bundled module cannot locate its own worker. */
+const WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
+
+/** Show Chinese place names and drop street-level clutter that competes with the forecast overlays. */
+function localizeStyle(map: MapLibreMap) {
+  const style: StyleSpecification = map.getStyle();
+  for (const layer of style.layers) {
+    if (layer.type !== "symbol") continue;
+    if (/poi|housenumber|highway-shield|road_shield/.test(layer.id)) {
+      map.setLayoutProperty(layer.id, "visibility", "none");
+      continue;
+    }
+    if (layer.layout?.["text-field"]) map.setLayoutProperty(layer.id, "text-field", CHINESE_LABEL);
+  }
+}
 
 function destination(longitude: number, latitude: number, bearing: number, distanceKm = 240) {
   const radius = 6371;
@@ -91,6 +97,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const initial = initialRef.current;
+    maplibregl.setWorkerUrl(new URL(WORKER_URL, window.location.origin).href);
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: MAP_STYLE,
@@ -106,7 +113,11 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "bottom-right");
-    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "天气 · Open-Meteo 多模式指导" }), "bottom-left");
+    map.addControl(new maplibregl.AttributionControl({
+      compact: true,
+      // The style's own sources already carry the OpenStreetMap / OpenMapTiles credits.
+      customAttribution: "天气 · Open-Meteo 多模式指导",
+    }), "bottom-left");
 
     const markerNode = document.createElement("div");
     markerNode.className = "map-pin-marker";
@@ -143,6 +154,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
     map.on("move", () => positionDirectionOverlay(map));
     map.on("error", () => setWarning(true));
     map.once("style.load", () => {
+      if (!CUSTOM_MAP_STYLE) localizeStyle(map);
       map.addSource("forecast-point", { type: "geojson", data: pointData(initial.location, initial.score, initial.mode) });
       map.addLayer({
         id: "forecast-halo",
@@ -156,6 +168,8 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
         },
       });
       setReady(true);
+      // Compact attribution opens expanded; on a phone-sized map it covers the basemap, so start collapsed.
+      if (map.getContainer().clientWidth < 640) map.getContainer().querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
       window.requestAnimationFrame(() => positionDirectionOverlay(map));
     });
     return () => {

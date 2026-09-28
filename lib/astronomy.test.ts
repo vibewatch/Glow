@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAstronomy, getMoonGeometry, getSolarAltitude, getSolarWindow } from "./astronomy";
+import { chinaMinute, getAstronomy, getMoonGeometry, getSolarAltitude, getSolarWindow, solarAltitudeCrossing } from "./astronomy";
 import { CITIES } from "./cities";
 
 describe("location-aware astronomy", () => {
@@ -27,8 +27,12 @@ describe("location-aware astronomy", () => {
   });
 
   it("derives blue and golden-hour crossings for the selected day", () => {
-    const window = getSolarWindow(beijing, "2026-08-03T05:14", "2026-08-03T19:26");
-    expect(window.daylightMinutes).toBe(852);
+    const window = getSolarWindow(beijing, "2026-08-03");
+    // Beijing 2026-08-03: sunrise ≈ 05:14, sunset ≈ 19:26 CST (upper limb with standard refraction).
+    expect(chinaMinute(new Date(window.sunriseAt!))).toMatch(/^2026-08-03T05:1[3-5]$/);
+    expect(chinaMinute(new Date(window.sunsetAt!))).toMatch(/^2026-08-03T19:2[5-7]$/);
+    expect(window.daylightMinutes).toBeGreaterThan(849);
+    expect(window.daylightMinutes).toBeLessThan(855);
     expect(window.morningBlueStart).not.toBeNull();
     expect(window.eveningBlueEnd).not.toBeNull();
     expect(window.eveningAstronomicalStart).not.toBeNull();
@@ -37,5 +41,11 @@ describe("location-aware astronomy", () => {
     expect(window.sunriseAzimuth).toBeGreaterThan(0);
     expect(window.sunsetAzimuth).toBeGreaterThan(180);
     expect(getSolarAltitude(beijing, new Date(window.eveningAstronomicalStart!))).toBeCloseTo(-18, 1);
+  });
+
+  it("finds geometric solar altitude crossings used to bound the twilight scan", () => {
+    const crossing = solarAltitudeCrossing(beijing, "2026-08-03", -1, -3);
+    expect(crossing).not.toBeNull();
+    expect(getSolarAltitude(beijing, crossing!)).toBeCloseTo(-3, 1);
   });
 });

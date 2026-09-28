@@ -8,7 +8,7 @@
 
 默认界面一次列出所选日期的 9 个独立窗口，并按峰值时刻排序：
 
-- 朝霞与晚霞分别评分，在日出日落前后按 10 分钟候选时刻计算太阳高度并选择最有利窗口，不把变化中的云况平均成一个不存在的场景。太阳高度只作为有界的暮光时段先验，不会被表述为目标云必然受到直射。
+- 朝霞与晚霞分别评分，在日出日落前后每 2 分钟计算太阳高度、中高云何时进入地影，并沿太阳方位 40–350 km 取 4 个格点判断光路透光，给出分钟级峰值与高指数窗口；云底高度按气候平均估计，因此仍不承诺目标云必然被照亮。
 - 日出、日落、金色时段与蓝调使用确定性天文几何，不伪装成概率。
 - 雾景、月亮、星空使用 ECMWF、CMA、GFS 与 ICON 多模式集合、时效和数据完整度形成机会指数。
 - 彩虹同时检查降水、直射阳光、太阳高度和反太阳观察方向，并明确单点网格不知道雨幕空间位置。
@@ -58,7 +58,7 @@ npm install
 npm run dev
 ```
 
-访问 `http://localhost:3000`。地图由 MapLibre GL 渲染，默认使用 CARTO / OpenStreetMap 栅格底图；可通过 `NEXT_PUBLIC_MAP_STYLE_URL` 更换 MapLibre 样式。
+访问 `http://localhost:3000`。地图由 MapLibre GL 渲染，默认使用 OpenFreeMap（OpenMapTiles / OpenStreetMap）矢量底图并切换为中文地名，瓦片 worker 由 `scripts/copy-maplibre-worker.mjs` 在 `dev`/`build` 前复制到 `public/maplibre/` 同源提供；可通过 `NEXT_PUBLIC_MAP_STYLE_URL` 更换 MapLibre 样式。
 
 ## 验证
 

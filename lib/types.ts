@@ -10,6 +10,19 @@ export interface City {
   region: "华北" | "东北" | "华东" | "华中" | "华南" | "西南" | "西北";
 }
 
+export interface LightPathSample {
+  distanceKm: number;
+  lowCloud: number | null;
+  midCloud: number | null;
+  highCloud: number | null;
+}
+
+/** A contiguous interval where the opportunity index stays close to its peak. */
+export interface ForecastWindow {
+  start: string;
+  end: string;
+}
+
 export interface SkyMetrics {
   lowCloud: number | null;
   midCloud: number | null;
@@ -52,6 +65,10 @@ export interface DailyOpportunity {
   limitation: string;
   direction: { azimuth: number; label: string } | null;
   details: { label: string; value: string }[];
+  /** Signed score contributions, largest first; empty for geometry-only items. */
+  factors: ScoreResult["contributions"];
+  /** Per-model index before averaging; their spread is the uncertainty signal. */
+  models: { model: string; score: number | null }[];
 }
 
 export interface HourlyWeatherPoint {
@@ -123,6 +140,7 @@ export interface FogMetrics {
 
 export interface FogForecast {
   time: string;
+  window: ForecastWindow;
   probability: number;
   confidence: number;
   level: "很高" | "较高" | "一般" | "较低";
@@ -133,6 +151,9 @@ export interface FogForecast {
 }
 
 export interface SolarWindow {
+  /** Upper-limb sunrise/sunset from Astronomy Engine, to the second (ISO instant). */
+  sunriseAt: string | null;
+  sunsetAt: string | null;
   morningBlueStart: string | null;
   sunriseAzimuth: number | null;
   morningGoldenEnd: string | null;
@@ -163,6 +184,10 @@ export interface MeteorShowerForecast {
   activeStart: string;
   activeEnd: string;
   peakPrecision: "night-range";
+  /** Solar longitude (J2000) of the IMO maximum used to derive `peak`. */
+  solarLongitude: number;
+  /** Darkest hour near the peak with the radiant highest; radiant and moon values refer to this instant. */
+  bestViewing: string;
   zenithalHourlyRate: number;
   radiant: string;
   radiantAltitude: number;
@@ -225,6 +250,7 @@ export interface NightWeatherMetrics {
 
 export interface MoonForecast extends MoonGeometry {
   time: string;
+  window: ForecastWindow;
   probability: number;
   confidence: number;
   level: "极佳" | "值得期待" | "可以等等" | "机会较低";
@@ -236,6 +262,7 @@ export interface MoonForecast extends MoonGeometry {
 
 export interface NightForecast {
   time: string;
+  window: ForecastWindow;
   astronomicalDusk: string | null;
   astronomicalDawn: string | null;
   darknessMinutes: number;
@@ -262,9 +289,25 @@ export interface ScoreResult {
   }[];
 }
 
+export interface GlowTimelinePoint {
+  time: string;
+  probability: number;
+  solarAltitude: number;
+}
+
 export interface EventForecast {
   kind: EventKind;
   time: string;
+  window: ForecastWindow;
+  /** Geometric solar altitude at the peak (degrees). */
+  solarAltitude: number;
+  /** Opportunity index scanned every two minutes across the twilight, averaged over available models. */
+  timeline: GlowTimelinePoint[];
+  lightPath: {
+    status: "available" | "unavailable";
+    azimuth: number;
+    samples: LightPathSample[];
+  };
   probability: number;
   confidence: number;
   level: "极佳" | "值得期待" | "可以等等" | "机会较低";

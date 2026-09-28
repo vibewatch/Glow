@@ -39,6 +39,15 @@ function forecastFixture(offset = 0) {
   };
 }
 
+function pathFixture(url: URL, bank = 0) {
+  const count = url.searchParams.get("latitude")!.split(",").length;
+  return Array.from({ length: count }, () => ({
+    hourly: { time: hourlyTime, cloud_cover_low: values(bank), cloud_cover_mid: values(Math.max(10, bank)), cloud_cover_high: values(20) },
+  }));
+}
+
+const isPath = (url: URL) => url.searchParams.get("latitude")!.includes(",");
+
 const airFixture = {
   hourly: {
     time: hourlyTime,
@@ -62,7 +71,7 @@ describe("forecast subsystem degradation", () => {
   it("builds the complete seven-day contract from deterministic provider data", async () => {
     const response = await getForecast(CITIES[0], {
       now: new Date("2026-08-03T00:00:00Z"),
-      fetcher: async (url: URL) => url.hostname.startsWith("air-quality") ? airFixture : forecastFixture(url.searchParams.get("models") === "cma_grapes_global" ? 4 : 0),
+      fetcher: async (url: URL) => url.hostname.startsWith("air-quality") ? airFixture : isPath(url) ? pathFixture(url) : forecastFixture(url.searchParams.get("models") === "cma_grapes_global" ? 4 : 0),
     });
     expect(response.generatedAt).toBe("2026-08-03T00:00:00.000Z");
     expect(response.days).toHaveLength(7);
@@ -74,19 +83,82 @@ describe("forecast subsystem degradation", () => {
     expect(response.hourly[0].solarAzimuth).toBeGreaterThanOrEqual(0);
     expect(response.provenance).toEqual(expect.objectContaining({ delivery: "Open-Meteo", warningAuthority: false }));
     expect(response.sources.every((source) => source.status === "available")).toBe(true);
+    const dusk = response.days[0].dusk;
+    expect(dusk.lightPath.status).toBe("available");
+    expect(dusk.lightPath.samples.map((sample) => sample.distanceKm)).toEqual([40, 120, 220, 350]);
+    expect(dusk.lightPath.azimuth).toBeGreaterThan(270);
+    expect(dusk.timeline.length).toBeGreaterThan(30);
+    expect(new Date(dusk.window.start).getTime()).toBeLessThanOrEqual(new Date(dusk.time).getTime());
+    expect(new Date(dusk.window.end).getTime()).toBeGreaterThanOrEqual(new Date(dusk.time).getTime());
+    // Beijing sunset 2026-08-03 ≈ 19:26 CST; a constant sky peaks within minutes after it, not at a fixed offset.
+    const minutesAfterSunset = (new Date(dusk.time).getTime() - new Date(response.days[0].solar.sunsetAt!).getTime()) / 60_000;
+    expect(minutesAfterSunset).toBeGreaterThan(3);
+    expect(minutesAfterSunset).toBeLessThan(25);
+    expect(response.days[0].sunset).toMatch(/^2026-08-03T19:2[5-7]$/);
+  });
+
+  it("scores a distant cloud bank toward the sunset below an open light path", async () => {
+    const run = (cloud: number) => getForecast(CITIES[0], {
+      now: new Date("2026-08-03T00:00:00Z"),
+      fetcher: async (url: URL) => url.hostname.startsWith("air-quality") ? airFixture : isPath(url) ? pathFixture(url, cloud) : forecastFixture(),
+    });
+    const [open, blocked] = await Promise.all([run(0), run(95)]);
+    expect(blocked.days[0].dusk.probability).toBeLessThan(open.days[0].dusk.probability - 10);
+    expect(blocked.days[0].dusk.contributions.find((item) => item.name === "远方光路")?.value).toBeLessThan(-5);
+    // Distant low cloud blocks the ray only after sunset, so the blocked peak moves earlier.
+    expect(new Date(blocked.days[0].dusk.time).getTime()).toBeLessThanOrEqual(new Date(open.days[0].dusk.time).getTime());
+    expect(blocked.days[0].dusk.summary).toContain("日落方向");
+  });
+
+  it("drops a model from hours past its published horizon instead of averaging a neutral guess", async () => {
+    const response = await getForecast(CITIES[0], {
+      now: new Date("2026-08-03T00:00:00Z"),
+      fetcher: async (url: URL) => {
+        if (url.hostname.startsWith("air-quality")) return airFixture;
+        if (isPath(url)) return pathFixture(url);
+        const model = url.searchParams.get("models");
+        if (model !== "ecmwf_ifs" && model !== "cma_grapes_global") throw new Error("simulated outage");
+        const fixture = forecastFixture(model === "cma_grapes_global" ? 40 : 0);
+        if (model === "cma_grapes_global") {
+          for (const key of Object.keys(fixture.hourly) as (keyof typeof fixture.hourly)[]) {
+            if (key !== "time") (fixture.hourly[key] as (number | null)[]) = (fixture.hourly[key] as number[]).map((value, index) => index >= 122 ? null : value);
+          }
+        }
+        return fixture;
+      },
+    });
+    expect(response.days[1].dusk.modelScores.map((item) => item.model)).toEqual(["ECMWF IFS", "CMA GRAPES"]);
+    expect(response.days[6].dusk.modelScores.map((item) => item.model)).toEqual(["ECMWF IFS"]);
+    expect(response.days[6].fog.modelScores.map((item) => item.model)).toEqual(["ECMWF IFS"]);
+    expect(response.days[6].night.modelScores.map((item) => item.model)).toEqual(["ECMWF IFS"]);
+  });
+
+  it("keeps fog in the night-to-morning window and times rainbows at the middle of the rain hour", async () => {
+    const response = await getForecast(CITIES[0], {
+      now: new Date("2026-08-03T00:00:00Z"),
+      fetcher: async (url: URL) => url.hostname.startsWith("air-quality") ? airFixture : isPath(url) ? pathFixture(url) : forecastFixture(),
+    });
+    for (const day of response.days) {
+      expect(new Date(`${day.fog.time}:00+08:00`).getTime()).toBeLessThanOrEqual(new Date(`${day.sunrise}:00+08:00`).getTime() + 3 * 3_600_000);
+    }
+    const hour = response.hourly.find((point) => point.time === "2026-08-03T18:00")!;
+    const rainbowHour = response.days[0].weather.rainbow;
+    expect(rainbowHour.metrics.solarAltitude).not.toBe(hour.solarAltitude);
   });
 
   it("continues with one weather model when its peers and CAMS are unavailable", async () => {
     const response = await getForecast(CITIES[0], {
       now: new Date("2026-08-03T00:00:00Z"),
       fetcher: async (url: URL) => {
-        if (url.hostname.startsWith("air-quality") || url.searchParams.get("models") !== "cma_grapes_global") throw new Error("simulated outage");
+        if (url.hostname.startsWith("air-quality") || url.searchParams.get("models") !== "cma_grapes_global" || isPath(url)) throw new Error("simulated outage");
         return forecastFixture(3);
       },
     });
     expect(response.days[0].dawn.modelScores).toHaveLength(1);
     expect(response.days[0].weather.cloud.modelScores).toHaveLength(1);
-    expect(response.sources.map((source) => source.status)).toEqual(["unavailable", "available", "unavailable", "unavailable", "unavailable"]);
+    expect(response.sources.map((source) => source.status)).toEqual(["unavailable", "available", "unavailable", "unavailable", "unavailable", "unavailable"]);
+    expect(response.days[0].dusk.lightPath).toEqual(expect.objectContaining({ status: "unavailable", samples: [] }));
+    expect(response.days[0].dusk.contributions.some((item) => item.name === "远方光路")).toBe(false);
     expect(response.days).toHaveLength(7);
   });
 
@@ -118,12 +190,15 @@ describe("forecast subsystem degradation", () => {
       const count = (attempts.get(url) ?? 0) + 1;
       attempts.set(url, count);
       if (count === 1) return new Response("temporary", { status: 503 });
-      const payload = url.includes("air-quality-api") ? airFixture : forecastFixture();
+      const parsed = new URL(url);
+      const payload = url.includes("air-quality-api") ? airFixture : isPath(parsed) ? pathFixture(parsed) : forecastFixture();
       return Response.json(payload);
     }));
 
     const response = await getForecast(CITIES[0], { now: new Date("2026-08-03T00:00:00Z") });
     expect(response.days).toHaveLength(7);
-    expect([...attempts.values()]).toEqual([2, 2, 2, 2, 2]);
+    // Four models, four light-path requests and CAMS, each retried exactly once.
+    expect([...attempts.values()]).toEqual(Array(9).fill(2));
+    expect(response.days[0].dusk.lightPath.status).toBe("available");
   });
 });

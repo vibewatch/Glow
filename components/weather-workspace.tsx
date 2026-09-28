@@ -1,8 +1,9 @@
 "use client";
 
-import { Cloud, CloudRain, CloudSun, Compass, Droplets, Eye, Gauge, Navigation, Thermometer, Wind } from "lucide-react";
+import { Cloud, CloudRain, CloudSun, Droplets, Navigation, Wind } from "lucide-react";
 import type { DayForecast, ForecastResponse, HourlyWeatherPoint, WeatherView } from "@/lib/types";
-import { CatalogHead, DateTabs, DockAstro, PanelCard, SourceDisclosure, compass, localTime } from "@/components/workspace-common";
+import { CatalogHead, DateTabs, DockAstro, SourceDisclosure, compass, localTime } from "@/components/workspace-common";
+import { InsightSection } from "@/components/insight-graphics";
 
 export function wmoLabel(code: number | null) {
   if (code === null) return "天气现象待更新";
@@ -226,14 +227,16 @@ export function WeatherPanel({ data, point, hours, view, onView }: {
         {view === "cloud" && <CloudDetail point={point} hours={hours} />}
         {view === "rain" && <RainDetail point={point} hours={hours} />}
         {view === "wind" && <WindDetail point={point} hours={hours} />}
-        <PanelCard icon={Gauge} title="现场细节" meta="点位预报">
-          <div className="metric-grid">
-            <span><Thermometer /><small>体感风险</small><strong>露点差 {value(dewGap, "°", 1)}</strong></span>
-            <span><Eye /><small>能见度</small><strong>{point.visibility === null ? "—" : `${Math.round(point.visibility / 1000)} km`}</strong></span>
-            <span><Compass /><small>来风方向</small><strong>{compass(point.windDirection)}</strong></span>
-            <span><Gauge /><small>地面气压</small><strong>{value(point.pressure, " hPa")}</strong></span>
-          </div>
-        </PanelCard>
+        <InsightSection title="现场细节" meta="点位预报">
+          <dl className="reading-grid">
+            <div><dt>露点差</dt><dd>{value(dewGap, "°", 1)}</dd></div>
+            <div><dt>能见度</dt><dd>{point.visibility === null ? "—" : `${Math.round(point.visibility / 1000)} km`}</dd></div>
+            <div><dt>来风方向</dt><dd>{compass(point.windDirection)}</dd></div>
+            <div><dt>地面气压</dt><dd>{value(point.pressure, " hPa")}</dd></div>
+            <div><dt>直射辐射</dt><dd>{value(point.directRadiation, " W/m²")}</dd></div>
+            <div><dt>太阳高度</dt><dd>{point.solarAltitude.toFixed(1)}°</dd></div>
+          </dl>
+        </InsightSection>
         <p className="weather-map-boundary">当前为所选位置的单点 168 小时预报。没有接入授权的雷达/网格瓦片前，地图不会伪造全国云图、雨图或风场。</p>
         <SourceDisclosure data={data} />
       </div>

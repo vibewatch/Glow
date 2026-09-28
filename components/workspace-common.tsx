@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Cloud, Database, Droplets, Eye, Gauge, Navigation, Thermometer, Wind } from "lucide-react";
+import { ChevronDown, Database } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { DayForecast, ForecastResponse, HourlyWeatherPoint, SpaceWeatherResponse } from "@/lib/types";
 
@@ -61,31 +61,6 @@ export function CatalogHead({ icon: Icon, eyebrow, title, badge }: { icon: Lucid
   );
 }
 
-export function PanelCard({ icon: Icon, title, meta, className, label, children }: {
-  icon?: LucideIcon;
-  title: string;
-  meta?: string;
-  className?: string;
-  label?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className={`panel-card${className ? ` ${className}` : ""}`} aria-label={label ?? title}>
-      <header><span>{Icon && <Icon size={14} />}{title}</span>{meta && <small>{meta}</small>}</header>
-      {children}
-    </section>
-  );
-}
-
-export function ScoreDial({ percent, primary, caption, tone, label }: { percent: number; primary: string; caption: string; tone: string; label: string }) {
-  const bounded = Math.max(0, Math.min(100, percent));
-  return (
-    <div className={`score-dial tone-${tone}`} style={{ "--score": `${bounded * 3.6}deg` } as React.CSSProperties} role="img" aria-label={label}>
-      <div><strong>{primary}</strong><small>{caption}</small></div>
-    </div>
-  );
-}
-
 /** Seven forecast days, rendered as the primary axis of the timeline dock. */
 export function DateTabs({ data, selected, onSelect, label = "选择预报日期" }: { data: ForecastResponse; selected: number; onSelect: (index: number) => void; label?: string }) {
   const move = (index: number, key: string) => {
@@ -143,17 +118,18 @@ export function FieldBriefing({ point, label, elevation }: { point: HourlyWeathe
   if (!point) return <p className="field-unavailable">{label}超出七天天气时效，暂不附加现场条件。</p>;
   const dewGap = point.temperature !== null && point.dewPoint !== null ? point.temperature - point.dewPoint : null;
   return (
-    <PanelCard icon={Gauge} title={`${label}现场条件`} meta={localTime(point.time)} className="field-briefing" label={`${label}现场条件`}>
-      <div className="metric-grid">
-        <span><Thermometer /><small>气温 / 露点差</small><strong>{point.temperature?.toFixed(0) ?? "—"}° / {dewGap?.toFixed(1) ?? "—"}°</strong></span>
-        <span><Wind /><small>持续 / 阵风</small><strong>{point.windSpeed?.toFixed(0) ?? "—"} / {point.windGusts?.toFixed(0) ?? "—"} km/h</strong></span>
-        <span><Navigation /><small>来风方向</small><strong>{compass(point.windDirection)}</strong></span>
-        <span><Eye /><small>能见度</small><strong>{point.visibility === null ? "—" : `${Math.round(point.visibility / 1000)} km`}</strong></span>
-        <span><Cloud /><small>总云量</small><strong>{point.totalCloud === null ? "—" : `${Math.round(point.totalCloud)}%`}</strong></span>
-        <span><Droplets /><small>降水</small><strong>{point.precipitation === null ? "—" : `${point.precipitation.toFixed(1)} mm`}</strong></span>
-      </div>
-      <p className="card-note">海拔 {elevation === null ? "—" : `${Math.round(elevation)} m`} · 露点差接近 0°C 时注意镜片结露，阵风会影响长焦与脚架稳定。</p>
-    </PanelCard>
+    <section className="insight-section field-briefing" aria-label={`${label}现场条件`}>
+      <header><h3>{label}现场条件</h3><small>{localTime(point.time)} 点位预报</small></header>
+      <dl className="reading-grid">
+        <div><dt>气温 / 露点差</dt><dd>{point.temperature?.toFixed(0) ?? "—"}° / {dewGap?.toFixed(1) ?? "—"}°</dd></div>
+        <div><dt>持续 / 阵风</dt><dd>{point.windSpeed?.toFixed(0) ?? "—"} / {point.windGusts?.toFixed(0) ?? "—"} km/h</dd></div>
+        <div><dt>来风方向</dt><dd>{compass(point.windDirection)}</dd></div>
+        <div><dt>能见度</dt><dd>{point.visibility === null ? "—" : `${Math.round(point.visibility / 1000)} km`}</dd></div>
+        <div><dt>总云量</dt><dd>{point.totalCloud === null ? "—" : `${Math.round(point.totalCloud)}%`}</dd></div>
+        <div><dt>降水</dt><dd>{point.precipitation === null ? "—" : `${point.precipitation.toFixed(1)} mm`}</dd></div>
+      </dl>
+      <p className="section-note">海拔 {elevation === null ? "—" : `${Math.round(elevation)} m`} · 露点差接近 0°C 时注意镜片结露，阵风会影响长焦与脚架稳定。</p>
+    </section>
   );
 }
 

@@ -326,7 +326,7 @@ export function GlowDashboard() {
       return [{ id: "wind", label: `来风 ${compass(selectedWeather.windDirection)}`, azimuth: selectedWeather.windDirection, color: "#4b7185" }];
     }
     if (workspace === "events" && selectedEvent?.azimuth !== null && selectedEvent?.azimuth !== undefined) {
-      return [{ id: "event", label: `${selectedEvent.kind === "meteor-shower" ? "辐射点" : "事件"} ${Math.round(selectedEvent.azimuth)}°`, azimuth: selectedEvent.azimuth, color: selectedEvent.kind === "solar-eclipse" ? "#d97735" : "#675c93", dashed: true }];
+      return [{ id: "event", label: `${selectedEvent.kind === "meteor-shower" ? "辐射点" : selectedEvent.kind === "solar-eclipse" ? "太阳方位" : "月亮方位"} ${Math.round(selectedEvent.azimuth)}°`, azimuth: selectedEvent.azimuth, color: selectedEvent.kind === "solar-eclipse" ? "#d97735" : "#675c93", dashed: true }];
     }
     return [];
   }, [selectedEvent, selectedOpportunity, selectedWeather, workspace]);
@@ -397,7 +397,7 @@ export function GlowDashboard() {
         </section>
 
         {ready && data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
-          workspace === "opportunities" ? <OpportunityPanel data={data} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} spaceWeatherStatus={spaceWeather?.status} onSelect={selectOpportunity} />
+          workspace === "opportunities" ? <OpportunityPanel data={data} day={day} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} spaceWeatherStatus={spaceWeather?.status} onSelect={selectOpportunity} />
             : workspace === "weather" ? <WeatherPanel data={data} point={selectedWeather} hours={dayHours} view={weatherView} onView={setWeatherView} />
               : <EventsPanel data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
         ) : (

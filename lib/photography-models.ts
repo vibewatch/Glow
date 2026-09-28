@@ -28,8 +28,10 @@ export function scoreFog(metrics: FogMetrics): ScoreResult {
   }
   if (metrics.windSpeed !== null) {
     const speed = metrics.windSpeed;
-    const value = speed >= 4 && speed <= 18 ? 12 : speed < 4 ? 3 : -Math.min((speed - 18) * .9, 18);
-    add("平流输送", value, `${speed.toFixed(0)} km/h 风速`, 17);
+    // Radiation fog, the common photographic case, needs near-calm air; stronger wind mixes the saturated layer away.
+    // Advection fog tolerates more wind, but a single grid point cannot see the sea or lake it would come from.
+    const value = speed <= 10 ? 11 : speed <= 18 ? 5 : -Math.min((speed - 18) * .9, 18);
+    add("风速条件", value, `${speed.toFixed(0)} km/h 风速${speed <= 10 ? "，利于辐射雾稳定" : speed <= 18 ? "，辐射雾易被扰动" : "，雾层难以停留"}`, 17);
   }
   if (metrics.lowCloud !== null) {
     const value = metrics.lowCloud >= 70 ? 11 : metrics.lowCloud >= 35 ? 7 : -4;
@@ -66,7 +68,7 @@ export function fogSummary(probability: number, metrics: FogMetrics) {
   const spread = metrics.temperature !== null && metrics.dewPoint !== null ? metrics.temperature - metrics.dewPoint : null;
   if ((metrics.windSpeed ?? 0) > 28) return "风速偏强，雾层难以稳定停留";
   if (spread !== null && spread <= 2 && (metrics.humidity ?? 0) >= 90) return "近地空气接近饱和，具备成雾基础";
-  if (probability >= 58) return "水汽与输送条件较配合，建议关注低洼和水面附近";
+  if (probability >= 58) return "水汽与风速条件较配合，建议关注低洼和水面附近";
   if (probability >= 38) return "存在雾景窗口，但局地地形将决定最终形态";
   return "空气尚未接近饱和，形成稳定雾层的机会有限";
 }

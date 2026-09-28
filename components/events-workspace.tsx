@@ -2,7 +2,8 @@
 
 import { AlertTriangle, CalendarDays, Eclipse, Orbit, Sparkles, Telescope } from "lucide-react";
 import type { EclipseForecast, ForecastResponse, MeteorShowerForecast } from "@/lib/types";
-import { CatalogHead, FieldBriefing, SourceDisclosure, closestHour, compass, forecastInstant, localDate, longDateTime } from "@/components/workspace-common";
+import { CatalogHead, FieldBriefing, SourceDisclosure, closestHour, compass, forecastInstant, localDate, localTime, longDateTime } from "@/components/workspace-common";
+import { SkyDome } from "@/components/insight-graphics";
 
 export interface RareEvent {
   id: string;
@@ -171,47 +172,87 @@ export function EventsDock({ data, events, selectedId, onSelect }: { data: Forec
   );
 }
 
+/** Active-period bar: meteor showers span weeks and eclipses span hours, so the labels follow the scale. */
+const nightFormatter = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" });
+
+/** Meteor maxima are only known to within hours, so name the night ("10/21–22 夜") instead of a minute. */
+function peakNight(value: string) {
+  const evening = forecastInstant(value) - 12 * 3_600_000;
+  const [month, day] = nightFormatter.format(new Date(evening)).split("/");
+  const next = nightFormatter.format(new Date(evening + 24 * 3_600_000)).split("/");
+  return `${month}/${day}–${next[0] === month ? next[1] : next.join("/")} 夜`;
+}
+
+function EventSpan({ event }: { event: RareEvent }) {
+  const from = forecastInstant(event.start);
+  const span = Math.max(1, forecastInstant(event.end) - from);
+  const at = (value: string) => Math.min(100, Math.max(0, (forecastInstant(value) - from) / span * 100));
+  const shower = event.kind === "meteor-shower";
+  const format = shower ? localDate : localTime;
+  const peak = shower ? peakNight(event.peak) : longDateTime(event.peak);
+  const best = event.shower?.bestViewing ?? null;
+  return (
+    <figure className={`event-span ${event.kind}`}>
+      <div className="span-track" role="img" aria-label={`${shower ? "活跃期" : "食象过程"} ${longDateTime(event.start)} 至 ${longDateTime(event.end)}，${shower ? "极大" : "食甚"} ${peak}`}>
+        <i className="span-peak" style={{ left: `${at(event.peak)}%` }} />
+        {best && <i className="span-best" style={{ left: `${at(best)}%` }} />}
+      </div>
+      <figcaption>
+        <span><small>{shower ? "活跃期起" : event.kind === "solar-eclipse" ? "初亏" : "半影食始"}</small><strong>{format(event.start)}</strong></span>
+        <span><small>{shower ? "预计峰值夜" : "食甚"}</small><strong>{peak}</strong></span>
+        <span><small>{shower ? "活跃期止" : event.kind === "solar-eclipse" ? "复圆" : "半影食终"}</small><strong>{format(event.end)}</strong></span>
+      </figcaption>
+    </figure>
+  );
+}
+
 export function EventsPanel({ data, events, selectedId, onSelect }: { data: ForecastResponse; events: RareEvent[]; selectedId: string; onSelect: (event: RareEvent) => void }) {
   const selected = events.find((event) => event.id === selectedId) ?? events[0];
   const inWeatherRange = data.days.some((day) => day.date === dateKey(selected.peak));
-  const fieldPoint = inWeatherRange ? closestHour(data.hourly, selected.peak) : null;
+  const fieldPoint = inWeatherRange ? closestHour(data.hourly, selected.shower?.bestViewing ?? selected.peak) : null;
   const index = events.findIndex((event) => event.id === selected.id);
   const step = (delta: number) => onSelect(events[(index + delta + events.length) % events.length]);
+  const shower = selected.shower;
   return (
     <aside className="inspector events-inspector" aria-label="所选天象事件详情">
       <header className="inspector-head">
-        <div><small>SELECTED EVENT</small><strong>{localDate(selected.peak)} · {daysAway(data, selected)} 天后</strong></div>
+        <div><small>{localDate(selected.peak)}</small><strong>{daysAway(data, selected)} 天后</strong></div>
         <span className="inspector-steppers">
+          <span>{index + 1} / {events.length}</span>
           <button type="button" aria-label="上一个天象事件" onClick={() => step(-1)}>‹</button>
           <button type="button" aria-label="下一个天象事件" onClick={() => step(1)}>›</button>
         </span>
       </header>
       <div className="inspector-scroll" id="workspace-detail" role="tabpanel">
         <section className={`event-detail ${selected.kind}`} aria-live="polite">
-          <div className="detail-title"><span className="inspector-icon"><EventIcon kind={selected.kind} /></span><h2>{selected.title}</h2></div>
-          <div className="event-headline">
-            <strong>{selected.metric}</strong>
-            <small>{selected.metricLabel}</small>
+          <div className="opportunity-hero">
+            <div>
+              <span className="hero-eyebrow"><EventIcon kind={selected.kind} /> {selected.kind === "meteor-shower" ? "流星雨" : selected.kind === "solar-eclipse" ? "日食" : "月食"}</span>
+              <h2>{selected.title}</h2>
+            </div>
+            <div className="hero-index event-metric">
+              <strong>{selected.metric}</strong>
+              <small>{selected.metricLabel}</small>
+            </div>
           </div>
           <p>{selected.summary}</p>
-          <div className="event-timing">
-            <span><small>开始 / 活跃期起</small><strong>{longDateTime(selected.start)}</strong></span>
-            <i />
-            <span><small>{selected.kind === "meteor-shower" ? "预计峰值夜" : "食甚"}</small><strong>{longDateTime(selected.peak)}</strong></span>
-            <i />
-            <span><small>结束 / 活跃期止</small><strong>{longDateTime(selected.end)}</strong></span>
-          </div>
-          <div className="detail-grid">
-            <span><small>距离事件</small><strong>{daysAway(data, selected)} 天</strong></span>
-            <span><small>本地方位</small><strong>{selected.azimuth === null ? "—" : compass(selected.azimuth)}</strong></span>
-            <span><small>{selected.kind === "meteor-shower" ? "峰值夜辐射点高度" : "食甚高度"}</small><strong>{selected.altitude === null ? "—" : `${selected.altitude.toFixed(1)}°`}</strong></span>
-            <span><small>天气状态</small><strong>{inWeatherRange ? "已进入七天预报" : "尚无可信天气"}</strong></span>
-            {selected.shower && <><span><small>辐射点</small><strong>{selected.shower.radiant}</strong></span><span><small>月面照明</small><strong>{selected.moonIllumination}%</strong></span></>}
+          <EventSpan event={selected} />
+          <div className="signature-split">
+            <dl className="reading-grid">
+              {shower && <div><dt>最佳观测</dt><dd>{longDateTime(shower.bestViewing)}</dd></div>}
+              {shower && <div><dt>极大太阳黄经</dt><dd>λ☉ {shower.solarLongitude.toFixed(1)}°</dd></div>}
+              <div><dt>{shower ? "峰值夜辐射点高度" : "食甚高度"}</dt><dd>{selected.altitude === null ? "—" : `${selected.altitude.toFixed(1)}°`}</dd></div>
+              <div><dt>本地方位</dt><dd>{selected.azimuth === null ? "—" : compass(selected.azimuth)}</dd></div>
+              {shower && <div><dt>辐射点</dt><dd>{shower.radiant}</dd></div>}
+              {shower && <div><dt>月面照明</dt><dd>{selected.moonIllumination}%</dd></div>}
+              <div><dt>天气状态</dt><dd>{inWeatherRange ? "已进入七天预报" : "尚无可信天气"}</dd></div>
+            </dl>
+            <SkyDome azimuth={selected.azimuth} altitude={selected.altitude} label={shower ? "最佳观测时辐射点位置" : "食甚时天体位置"} />
           </div>
           <p className="event-source-note">{selected.sourceNote}</p>
           {selected.kind === "solar-eclipse" && <p className="event-safety"><AlertTriangle /> 严禁用肉眼或普通减光镜直视太阳；拍摄日食必须使用合格的太阳滤镜。</p>}
         </section>
-        {inWeatherRange ? <FieldBriefing point={fieldPoint} label="事件峰值" elevation={data.location.elevation} /> : <p className="event-weather-wait">事件距今 {daysAway(data, selected)} 天。天气只在进入七天预报窗口后显示，当前不生成远期云量或成功率。</p>}
+        {inWeatherRange ? <FieldBriefing point={fieldPoint} label={shower ? "最佳观测" : "事件峰值"} elevation={data.location.elevation} /> : <p className="event-weather-wait">事件距今 {daysAway(data, selected)} 天。天气只在进入七天预报窗口后显示，当前不生成远期云量或成功率。</p>}
         <SourceDisclosure data={data} />
       </div>
     </aside>

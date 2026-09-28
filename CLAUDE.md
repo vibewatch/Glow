@@ -42,12 +42,13 @@ The shell is a fixed grid — top bar / catalog rail / map canvas / inspector / 
 | 专业天气 | `components/weather-workspace.tsx` | `WeatherCatalog` / `WeatherPanel` / `WeatherDock` |
 | 罕见天象 | `components/events-workspace.tsx` | `EventsCatalog` / `EventsPanel` / `EventsDock` |
 
-`components/workspace-common.tsx` holds the shared primitives (`DateTabs`, `PanelCard`, `ScoreDial`, `FieldBriefing`, `SourceDisclosure`) and the shared time helpers. Adding a workspace means adding to the `WORKSPACES` registry *and* to `scripts/verify-audit-coverage.mjs` (see Verification gate).
+`components/workspace-common.tsx` holds the shared primitives (`DateTabs`, `FieldBriefing`, `SourceDisclosure`) and the shared time helpers. `components/insight-graphics.tsx` holds the inspector's figures (`GlowProfile` light-path cross-section, `WindowRibbon`, `FactorBars`, `ModelAgreement`, `SkyDome`, `InsightSection`); the inspector is laid out as hairline-separated sections, not boxed cards. Adding a workspace means adding to the `WORKSPACES` registry *and* to `scripts/verify-audit-coverage.mjs` (see Verification gate).
 
 ### Data flow
 
 ```
-Open-Meteo (ECMWF IFS 0.25° + CMA GRAPES 15km + CAMS air quality)
+Open-Meteo (ECMWF IFS HRES 9km + CMA GRAPES 15km + NOAA GFS + DWD ICON + CAMS air quality,
+            plus 4 light-path points 40/120/220/350 km toward sunrise/sunset azimuth)
   → lib/weather.ts        getForecast() → ForecastResponse (7 days + 168 hourly + sources + provenance)
   → lib/opportunities.ts  buildDailyOpportunities(day, city, spaceWeather) → 9 DailyOpportunity, sorted by peak
 NOAA SWPC Kp  → lib/space-weather.ts → SpaceWeatherResponse (separate route, separate failure domain)
@@ -76,6 +77,8 @@ Open-Meteo returns naive local strings (`"2026-08-03T05:20"`); ISO instants end 
 ### Map
 
 `components/weather-map.tsx` (MapLibre GL, dynamically imported with `ssr: false`). Bearing lines are a **DOM overlay** re-projected on every `move`, not GeoJSON layers — an earlier double-drawn implementation was removed, so don't reintroduce map-layer direction lines. Only the currently selected item's direction is drawn; line length carries no distance meaning. Bounds are locked to China (`maxBounds: [[69,12],[140,57]]`).
+
+The basemap is OpenFreeMap vector tiles. MapLibre 6 cannot locate its tile worker from inside the Next bundle, so `scripts/copy-maplibre-worker.mjs` (run by `predev`/`prebuild`) copies `maplibre-gl-worker.mjs` + `maplibre-gl-shared.mjs` into the git-ignored `public/maplibre/`, and the map calls `setWorkerUrl()`. `proxy.ts` excludes `/maplibre/` so the worker's module import is not subject to the document's nonce CSP. If the map is blank but style/sprite requests succeed and no `.pbf` tiles are fetched, the worker failed to load.
 
 ### Security
 

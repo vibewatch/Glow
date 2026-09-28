@@ -141,28 +141,51 @@ export function getSolarPosition(city: City, at: Date) {
   return { altitude: position.altitude, azimuth: position.azimuth };
 }
 
-export function getSolarWindow(city: City, sunrise: string, sunset: string): SolarWindow {
+/** Naive Asia/Shanghai minute string, the same shape Open-Meteo returns ("2026-08-03T05:20"). */
+export function chinaMinute(value: Date) {
+  return new Date(Math.round(value.getTime() / 60_000) * 60_000 + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
+}
+
+/** First time after local midnight of `date` the geometric solar centre crosses `altitude` in `direction`. */
+export function solarAltitudeCrossing(city: City, date: string, direction: 1 | -1, altitude: number) {
+  const start = new Date(`${date}T${direction === 1 ? "00" : "12"}:00:00+08:00`);
+  return SearchAltitude(Body.Sun, observerFor(city), direction, start, 1, altitude)?.date ?? null;
+}
+
+export function getSunRiseSet(city: City, date: string) {
   const observer = observerFor(city);
-  const date = sunrise.slice(0, 10);
+  const sunrise = SearchRiseSet(Body.Sun, observer, 1, new Date(`${date}T00:00:00+08:00`), 1)?.date ?? null;
+  const sunset = SearchRiseSet(Body.Sun, observer, -1, new Date(`${date}T12:00:00+08:00`), 1)?.date ?? null;
+  return {
+    sunrise,
+    sunset,
+    sunriseAzimuth: sunrise ? azimuthAt(sunrise, observer) : null,
+    sunsetAzimuth: sunset ? azimuthAt(sunset, observer) : null,
+  };
+}
+
+export function getSolarWindow(city: City, date: string): SolarWindow {
+  const observer = observerFor(city);
   const start = new Date(`${date}T00:00:00+08:00`);
   const noon = new Date(`${date}T12:00:00+08:00`);
-  const sunriseDate = new Date(`${sunrise}:00+08:00`);
-  const sunsetDate = new Date(`${sunset}:00+08:00`);
+  const riseSet = getSunRiseSet(city, date);
   const eveningAstronomicalStart = crossing(Body.Sun, observer, -1, noon, -18);
-  const morningAstronomicalEnd = crossing(Body.Sun, observer, 1, sunsetDate, -18);
+  const morningAstronomicalEnd = crossing(Body.Sun, observer, 1, riseSet.sunset ?? noon, -18);
   const astronomicalDarknessMinutes = eveningAstronomicalStart && morningAstronomicalEnd
     ? Math.max(0, Math.round((new Date(morningAstronomicalEnd).getTime() - new Date(eveningAstronomicalStart).getTime()) / 60000))
     : 0;
   return {
+    sunriseAt: riseSet.sunrise?.toISOString() ?? null,
+    sunsetAt: riseSet.sunset?.toISOString() ?? null,
     morningBlueStart: crossing(Body.Sun, observer, 1, start, -6),
-    sunriseAzimuth: azimuthAt(sunriseDate, observer),
+    sunriseAzimuth: riseSet.sunriseAzimuth,
     morningGoldenEnd: crossing(Body.Sun, observer, 1, start, 6),
     eveningGoldenStart: crossing(Body.Sun, observer, -1, noon, 6),
-    sunsetAzimuth: azimuthAt(sunsetDate, observer),
+    sunsetAzimuth: riseSet.sunsetAzimuth,
     eveningBlueEnd: crossing(Body.Sun, observer, -1, noon, -6),
     eveningAstronomicalStart,
     morningAstronomicalEnd,
     astronomicalDarknessMinutes,
-    daylightMinutes: Math.round((sunsetDate.getTime() - sunriseDate.getTime()) / 60000),
+    daylightMinutes: riseSet.sunrise && riseSet.sunset ? Math.round((riseSet.sunset.getTime() - riseSet.sunrise.getTime()) / 60000) : 0,
   };
 }

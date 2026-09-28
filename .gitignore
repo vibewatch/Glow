@@ -8,3 +8,4 @@ npm-debug.log*
 playwright-report
 test-results
 *.tsbuildinfo
+/public/maplibre
