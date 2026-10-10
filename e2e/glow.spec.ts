@@ -1,34 +1,26 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
-test("API returns weather, daily astronomy, meteor showers, and independently degradable space weather", async ({ request }) => {
-  const response = await request.get("/api/forecast?city=beijing");
-  expect(response.ok()).toBeTruthy();
-  const payload = await response.json();
-  expect(payload.location.name).toBe("北京");
-  expect(payload.days).toHaveLength(7);
-  expect(payload.hourly).toHaveLength(168);
-  expect(payload.days[0].fog.modelScores.length).toBeGreaterThanOrEqual(1);
-  expect(payload.days[0].solar.sunriseAzimuth).toBeGreaterThan(0);
-  expect(payload.days[0].night.modelScores.length).toBeGreaterThanOrEqual(1);
-  expect(payload.days[0].weather.rainbow.score).toBeGreaterThanOrEqual(0);
-  expect(payload.hourly[0]).toEqual(expect.objectContaining({ totalCloud: expect.any(Number), windGusts: expect.any(Number), windDirection: expect.any(Number) }));
-  expect(payload.astronomy.nextLunarEclipse.visible).toBe(true);
-  expect(payload.astronomy.nextSolarEclipse.visible).toBe(true);
-  expect(payload.astronomy.meteorShowers).toHaveLength(8);
-  expect(payload.astronomy.meteorShowers[0]).toEqual(expect.objectContaining({ peakPrecision: "night-range", radiantAltitude: expect.any(Number), radiantAzimuth: expect.any(Number) }));
-  expect(payload.sources.slice(0, 2).some((source: { status: string }) => source.status === "available")).toBeTruthy();
-
-  const space = await request.get("/api/space-weather");
-  expect(space.ok()).toBeTruthy();
-  expect(await space.json()).toEqual(expect.objectContaining({ status: expect.stringMatching(/available|unavailable/), source: expect.objectContaining({ name: "NOAA SWPC" }) }));
-
-  expect((await request.get("/api/forecast?lat=37.5665&lon=126.978")).status()).toBe(400);
-  expect((await request.get("/api/forecast?city=not-a-city")).status()).toBe(400);
+test("static app fetches providers directly and degrades NOAA independently", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(request.url()));
+  await page.route("https://services.swpc.noaa.gov/**", (route) => route.abort());
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
+  await expect(page.locator(".header-health")).toHaveAttribute("data-state", "healthy");
+  await expect(page.getByRole("tablist", { name: "七天机会日期" }).getByRole("tab")).toHaveCount(7);
+  await page.locator(".opportunity-list > button").filter({ hasText: "极光" }).click();
+  await expect(page.locator(".selected-opportunity")).toContainText("暂无可靠预测");
+  const weatherRequests = requests.filter((url) => url.includes("open-meteo.com"));
+  expect(weatherRequests).toHaveLength(9);
+  expect(weatherRequests.every((url) => !new URL(url).searchParams.has("apikey"))).toBe(true);
+  expect(requests.some((url) => url.includes("/api/"))).toBe(false);
+  await page.getByTitle("罕见天象", { exact: true }).click();
+  await expect(page.locator(".rare-event-list > button")).toHaveCount(10);
 });
 
 test("daily agenda exposes every opportunity and links panel, time node, and selected map direction", async ({ page }) => {
   let forecastRequests = 0;
-  page.on("request", (request) => { if (request.url().includes("/api/forecast")) forecastRequests += 1; });
+  page.on("request", (request) => { if (request.url().includes("open-meteo.com")) forecastRequests += 1; });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
   await expect(page.locator(".opportunity-list > button")).toHaveCount(9);
@@ -66,7 +58,7 @@ test("daily agenda exposes every opportunity and links panel, time node, and sel
 
 test("weather workspace follows a familiar hourly cloud, rain, and wind workflow without refetching", async ({ page }) => {
   let forecastRequests = 0;
-  page.on("request", (request) => { if (request.url().includes("/api/forecast")) forecastRequests += 1; });
+  page.on("request", (request) => { if (request.url().includes("open-meteo.com")) forecastRequests += 1; });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
   const baselineRequests = forecastRequests;
@@ -120,7 +112,7 @@ test("search, refresh, map click, drag, and rejected picks preserve the shared l
   await page.getByRole("option", { name: /上海/ }).click();
   await expect(page.locator(".coordinate-hud")).toContainText("上海");
 
-  const refreshed = page.waitForResponse((response) => response.url().includes("/api/forecast?city=shanghai") && response.request().resourceType() === "fetch");
+  const refreshed = page.waitForResponse((response) => response.url().includes("api.open-meteo.com") && new URL(response.url()).searchParams.get("latitude") === "31.2304");
   await page.getByRole("button", { name: "刷新当前预测" }).click();
   await refreshed;
   await expect(page.getByRole("button", { name: "刷新当前预测" })).toBeEnabled();

@@ -4,7 +4,7 @@
 
 网站地址：[https://glow.genisisiq.com](https://glow.genisisiq.com)。代码仓库：[vibewatch/Glow](https://github.com/vibewatch/Glow)。
 
-部署需要支持 Next.js 服务端的运行环境，以提供天气 API 和动态安全响应头；GitHub Pages 仅支持静态内容，配置自定义域名并不代表完整应用已部署。
+应用完全在浏览器运行，无后端、数据库或私有 API 密钥。Next.js 只负责构建静态页面；天气数据直接从 Open-Meteo 与 NOAA 获取，摄影评分和天文几何在浏览器计算。
 
 ## 三个工作区
 
@@ -16,7 +16,7 @@
 - 日出、日落、金色时段与蓝调使用确定性天文几何，不伪装成概率。
 - 雾景、月亮、星空使用 ECMWF、CMA、GFS 与 ICON 多模式集合、时效和数据完整度形成机会指数。
 - 彩虹同时检查降水、直射阳光、太阳高度和反太阳观察方向，并明确单点网格不知道雨幕空间位置。
-- 极光通过独立 `/api/space-weather` 接入 NOAA SWPC Kp 预报；结合本地纬度经验门槛、天文黑夜与云量。数据源故障或超出有效期时显示“暂无可靠预测”，不会补成 0 分。
+- 极光通过独立的浏览器请求接入 NOAA SWPC Kp 预报；结合本地纬度经验门槛、天文黑夜与云量。数据源故障或超出有效期时显示“暂无可靠预测”，不会补成 0 分。
 
 地图底部由两层时间控件组成：7 日日期选择和所选日 00:00–24:00 时间轴。点击右侧机会、时间轴峰值节点或拖动 15 分钟时间游标会更新当前时刻；地图只完整绘制当前选中机会的真实方位，雾和普通星空等没有可靠单一方向的项目不会制造箭头。辅助线长度不表示距离。
 
@@ -48,7 +48,7 @@
 
 - ECMWF IFS、CMA GRAPES、NOAA GFS 与 DWD ICON 逐模式独立形成天气判断；模式分歧、预报提前量和缺失字段会降低参考度。多中心一致性不是集合预报概率。
 - CAMS 提供气溶胶光学厚度与 PM₂.₅。
-- Open-Meteo 是统一 HTTPS API 交付层，不是中国官方预警机构。开放端点适用于非商业使用；商业部署应配置 `OPEN_METEO_API_KEY`。
+- Open-Meteo 是统一 HTTPS API 交付层，不是中国官方预警机构。此静态版本使用限流的非商业开放端点；商业部署需要另行确认授权方案，不能把私有 customer API 密钥放入浏览器。
 - NOAA SWPC 提供 Kp 空间天气指导。Kp 是全球地磁活动指标，不等于某地点一定能看见极光；当前尚未接入实时极光椭圆和太阳风 Bz。
 - Astronomy Engine 计算日月位置、暮光与食象；主要流星雨目录采用 IMO 年表口径并诚实表达峰值精度。
 - 山体、建筑、光污染、局地云、雷达实况和精细地形仍需临近或现场复核。灾害天气以[中国气象局预警](https://weather.cma.cn/web/alarm/map.html)为准。
@@ -64,13 +64,30 @@ npm run dev
 
 访问 `http://localhost:3000`。地图由 MapLibre GL 渲染，默认使用 OpenFreeMap（OpenMapTiles / OpenStreetMap）矢量底图并切换为中文地名，瓦片 worker 由 `scripts/copy-maplibre-worker.mjs` 在 `dev`/`build` 前复制到 `public/maplibre/` 同源提供；可通过 `NEXT_PUBLIC_MAP_STYLE_URL` 更换 MapLibre 样式。
 
+## 静态部署与 GitHub Pages
+
+```bash
+npm run build
+npm run start
+```
+
+`build` 导出 `out/`，并按页面内容生成 CSP 脚本 SHA-256 哈希；`start` 只是本地静态文件预览，不提供天气 API。可将 `out/` 原样发布到任意静态 HTTPS 主机。
+
+`.github/workflows/pages.yml` 在 `main` 更新时运行完整验证并部署到 GitHub Pages。仓库 Pages 的构建来源应为 GitHub Actions；`public/CNAME` 指定 `glow.genisisiq.com`，DNS CNAME 指向 `vibewatch.github.io`，Pages 设置启用强制 HTTPS。
+
+每个地点首次加载最多发起 9 个 Open-Meteo 请求（4 个天气模式、4 个多点光路请求、1 个 CAMS 请求），每个请求最多重试一次。页面内最多缓存 20 个地点、有效期 10 分钟；中国时间跨日失效，手动刷新绕过缓存，新落点取消旧请求。NOAA 单独缓存 15 分钟，源故障明确降级并在 2 分钟后允许重试。缓存只保存在当前页面内存，不存储用户数据，不共享配额，也不提供离线天气。
+
+上游必须允许跨域浏览器访问；Open-Meteo 天气、空气质量和 NOAA 当前均支持 CORS。网络封锁、源限流或 CORS 策略变化会触发界面的不可用提示，不会回退到未授权代理或虚构数据。浏览器请求会向数据源发送所选经纬度，数据源可看到访问者 IP。
+
+静态页面通过 CSP meta 限制脚本、对象和内联事件处理器；不使用运行时 nonce。GitHub Pages 控制 HTTP 响应头，不能沿用服务器版的自定义 HSTS、COOP、Permissions-Policy 或防嵌入响应头。更改导出 HTML 后必须重新生成 CSP 哈希。
+
 ## 验证
 
 ```bash
 npm run verify
 ```
 
-验证链路包括 ESLint、TypeScript、37 个气象/天文/空间天气/API 单元测试、生产构建和 22 个 Playwright 流程。浏览器验证覆盖三个工作区、9 个每日机会、云/雨/风、24 小时与 7 日选择、三向机会联动、日月食与流星雨、极光降级、搜索/定位/地图落点/拖动/刷新/错误恢复、安全响应头和 320×568 至 1920×1080 的 8 个视口。
+验证链路包括 ESLint、TypeScript、气象/天文/空间天气/浏览器数据边界单元测试、静态生产构建和 22 个 Playwright 流程。浏览器测试在静态文件服务器上拦截上游公开接口并返回确定性原始数据，仍由真实浏览器运行全部计算，不依赖本地 API。覆盖三个工作区、9 个每日机会、云/雨/风、24 小时与 7 日选择、三向机会联动、日月食与流星雨、极光降级、搜索/定位/地图落点/拖动/刷新/错误恢复、哈希 CSP 和 320×568 至 1920×1080 的 8 个视口。
 
 UI 审计生成 82 张状态截图，并以 14 次 Axe 扫描覆盖三个工作区、天气详情、搜索、错误和 404 状态。`npm run verify:audit` 会交叉核对工作区注册表、Playwright 结果和截图矩阵，防止一个绿色退出码掩盖覆盖缺口。
 
@@ -85,6 +102,7 @@ UI 审计生成 82 张状态截图，并以 14 次 Axe 扫描覆盖三个工作�
 - `lib/space-weather.ts`：NOAA SWPC Kp 适配、验证、重试与独立降级。
 - `lib/meteor-showers.ts`：主要流星雨年表、本地辐射点和月光条件。
 - `lib/weather.ts`：多模式 168 小时天气、摄影模型和单模式降级。
+- `lib/browser-data.ts`：中国区域校验、有限内存缓存、请求取消和独立空间天气降级。
 - `lib/astronomy.ts`：太阳、月亮、暮光与本地可见食象。
 
 详细边界见 [`docs/data-research.md`](docs/data-research.md)、[`docs/weather-tools-architecture.md`](docs/weather-tools-architecture.md) 和 [`docs/professional-photography-audit.md`](docs/professional-photography-audit.md)。

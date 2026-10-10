@@ -7,6 +7,8 @@ type SpaceWeatherFetcher = (url: URL) => Promise<unknown>;
 interface SpaceWeatherOptions {
   fetcher?: SpaceWeatherFetcher;
   now?: Date;
+  signal?: AbortSignal;
+  force?: boolean;
 }
 
 function asStatus(value: unknown): SpaceWeatherKpPoint["status"] {
@@ -51,19 +53,20 @@ export function parseKpForecast(value: unknown): SpaceWeatherKpPoint[] {
   }).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
 
-async function fetchNoaa(url: URL): Promise<unknown> {
+async function fetchNoaa(url: URL, options: SpaceWeatherOptions): Promise<unknown> {
   let failure: unknown = new Error("Space weather provider unavailable");
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    options.signal?.throwIfAborted();
     try {
       const response = await fetch(url, {
-        headers: { "User-Agent": "Jiguang-Sky-Forecast/0.1" },
-        next: { revalidate: 900 },
-        signal: AbortSignal.timeout(5000),
+        cache: options.force ? "no-store" : "default",
+        signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
       });
       if (response.ok) return response.json() as Promise<unknown>;
       failure = new Error(`Space weather provider returned ${response.status}`);
       if (response.status !== 429 && response.status < 500) break;
     } catch (error) {
+      options.signal?.throwIfAborted();
       failure = error;
     }
     if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -73,8 +76,10 @@ async function fetchNoaa(url: URL): Promise<unknown> {
 
 export async function getSpaceWeather(options: SpaceWeatherOptions = {}): Promise<SpaceWeatherResponse> {
   const now = options.now ?? new Date();
-  const fetcher = options.fetcher ?? fetchNoaa;
+  options.signal?.throwIfAborted();
+  const fetcher = options.fetcher ?? ((url: URL) => fetchNoaa(url, options));
   const points = parseKpForecast(await fetcher(new URL(NOAA_KP_URL)));
+  options.signal?.throwIfAborted();
   if (!points.length) throw new Error("NOAA SWPC returned an invalid Kp forecast");
   return {
     status: "available",

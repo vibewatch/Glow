@@ -11,12 +11,12 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     ...devices["Desktop Chrome"],
-    channel: "chrome",
+    channel: process.env.CI ? undefined : "chrome",
   },
   webServer: {
     command: "npm run start",
     url: "http://127.0.0.1:3000",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 30_000,
   },
 });

@@ -10,6 +10,7 @@ import { OpportunityCatalog, OpportunityDock, OpportunityPanel } from "@/compone
 import { WeatherCatalog, WeatherDock, WeatherPanel } from "@/components/weather-workspace";
 import { closestHour, compass, forecastInstant, localTime } from "@/components/workspace-common";
 import { CITIES } from "@/lib/cities";
+import { coordinateCity, forecastForLocation, spaceWeatherForecast } from "@/lib/browser-data";
 import { buildDailyOpportunities } from "@/lib/opportunities";
 import type { City, DailyOpportunity, ForecastResponse, HourlyWeatherPoint, MapAnnotation, OpportunityKind, SpaceWeatherResponse, WeatherView, WorkspaceMode } from "@/lib/types";
 
@@ -223,19 +224,24 @@ export function GlowDashboard() {
   const [selectedEventId, setSelectedEventId] = useState("");
   const requestRef = useRef(0);
   const forecastAbortRef = useRef<AbortController | null>(null);
-  const currentUrlRef = useRef("/api/forecast?city=beijing");
+  const currentCityRef = useRef(CITIES[0]);
+  const spaceAbortRef = useRef<AbortController | null>(null);
 
   const loadSpaceWeather = useCallback(async (force = false) => {
+    spaceAbortRef.current?.abort();
+    const controller = new AbortController();
+    spaceAbortRef.current = controller;
     try {
-      const response = await fetch("/api/space-weather", force ? { cache: "no-store" } : undefined);
-      if (!response.ok) return;
-      setSpaceWeather(await response.json() as SpaceWeatherResponse);
-    } catch {
-      setSpaceWeather(null);
+      const forecast = await spaceWeatherForecast({ force, signal: controller.signal });
+      if (!controller.signal.aborted) setSpaceWeather(forecast);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        console.error("Space weather update failed", error);
+      }
     }
   }, []);
 
-  const loadForecast = useCallback(async (url: string, force = false) => {
+  const loadForecast = useCallback(async (city: City, force = false) => {
     const request = ++requestRef.current;
     forecastAbortRef.current?.abort();
     const controller = new AbortController();
@@ -243,17 +249,16 @@ export function GlowDashboard() {
     setStatus((current) => current === "loading" ? "loading" : "updating");
     setError(null);
     try {
-      const response = await fetch(url, { cache: force ? "no-store" : "default", signal: controller.signal });
-      const payload = await response.json() as ForecastResponse | { error: string };
-      if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "天气数据加载失败");
+      const payload = await forecastForLocation(city, { force, signal: controller.signal });
       if (request !== requestRef.current) return true;
+      if (controller.signal.aborted) return false;
       const dayIndex = Math.max(0, Math.min(payload.days.length - 1, payload.recommendedIndex));
       const agenda = buildDailyOpportunities(payload.days[dayIndex], payload.location, null);
       const best = bestOpportunity(agenda, forecastInstant(payload.generatedAt));
       const weather = initialWeatherPoint(payload, dayIndex);
       const events = buildRareEvents(payload);
       setData(payload);
-      currentUrlRef.current = url;
+      currentCityRef.current = city;
       setSelectedIndex(dayIndex);
       setSelectedOpportunityId(best.id);
       setSelectedInstant(forecastInstant(best.peak));
@@ -264,6 +269,7 @@ export function GlowDashboard() {
       return true;
     } catch (reason) {
       if (request !== requestRef.current) return true;
+      if (controller.signal.aborted) return false;
       setError(reason instanceof Error ? reason.message : "天气数据加载失败");
       setStatus((current) => current === "updating" ? "ready" : "error");
       return false;
@@ -273,11 +279,12 @@ export function GlowDashboard() {
   useEffect(() => {
     const task = window.setTimeout(() => {
       void loadSpaceWeather();
-      void loadForecast("/api/forecast?city=beijing");
+      void loadForecast(CITIES[0]);
     }, 0);
     return () => {
       window.clearTimeout(task);
       forecastAbortRef.current?.abort();
+      spaceAbortRef.current?.abort();
     };
   }, [loadForecast, loadSpaceWeather]);
 
@@ -307,7 +314,16 @@ export function GlowDashboard() {
   };
 
   const selectEvent = (event: RareEvent) => setSelectedEventId(event.id);
-  const pickCoordinate = useCallback((latitude: number, longitude: number) => loadForecast(`/api/forecast?lat=${latitude.toFixed(5)}&lon=${longitude.toFixed(5)}&name=${encodeURIComponent("地图落点")}`), [loadForecast]);
+  const pickCoordinate = useCallback(async (latitude: number, longitude: number) => {
+    let city: City;
+    try {
+      city = coordinateCity(latitude, longitude);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "坐标格式无效");
+      return false;
+    }
+    return loadForecast(city);
+  }, [loadForecast]);
   const locate = () => {
     if (!navigator.geolocation) { setError("当前浏览器不支持定位"); return; }
     navigator.geolocation.getCurrentPosition(
@@ -344,14 +360,14 @@ export function GlowDashboard() {
       <header className="workspace-header">
         <div className="workspace-brand"><BrandMark /><span className="product-edition">PRO</span></div>
         <WorkspaceNavigation active={workspace} onChange={setWorkspace} />
-        <LocationSearch current={current} onSelect={(city) => { void loadForecast(`/api/forecast?city=${city.id}`); }} onLocate={locate} />
+        <LocationSearch current={current} onSelect={(city) => { void loadForecast(city); }} onLocate={locate} />
         <div className="header-status">
           <span className="sr-only" role="status" aria-live="polite">{status === "loading" ? "正在加载天气数据" : status === "updating" ? "正在刷新当前预测" : status === "error" ? "天气数据加载失败" : "预测已更新"}</span>
           <SourceHealth sources={data?.sources} generatedAt={data?.generatedAt} />
           <button
             type="button"
             className={`refresh-forecast ${status === "updating" ? "syncing" : ""}`}
-            onClick={() => { void loadForecast(currentUrlRef.current, true); void loadSpaceWeather(true); }}
+            onClick={() => { void loadForecast(currentCityRef.current, true); void loadSpaceWeather(true); }}
             disabled={status === "loading" || status === "updating"}
             aria-label="刷新当前预测"
           ><RefreshCw size={14} /><span>{status === "updating" ? "刷新中" : "刷新预测"}</span></button>
@@ -404,7 +420,7 @@ export function GlowDashboard() {
           <aside className="inspector inspector-loading" aria-label="详情加载中">
             <div className="loading-heading"><span /><div><i /><b /></div></div>
             <div className="loading-score" /><div className="loading-block" /><div className="loading-block short" />
-            {status === "error" && <div className="workspace-error"><AlertTriangle /><h1>数据暂时不可用</h1><p>{error}</p><button type="button" onClick={() => { void loadForecast(currentUrlRef.current); }}>重新连接</button></div>}
+            {status === "error" && <div className="workspace-error"><AlertTriangle /><h1>数据暂时不可用</h1><p>{error}</p><button type="button" onClick={() => { void loadForecast(currentCityRef.current, true); }}>重新连接</button></div>}
           </aside>
         )}
       </div>

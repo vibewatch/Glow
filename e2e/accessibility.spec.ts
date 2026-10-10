@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 async function expectAccessible(page: Page, state: string) {
   const results = await new AxeBuilder({ page }).analyze();
@@ -38,14 +39,14 @@ for (const viewport of [
 }
 
 test("initial failure state meets automated accessibility checks", async ({ page }) => {
-  await page.route("**/api/forecast**", (route) => route.fulfill({
+  await page.route("https://*.open-meteo.com/**", (route) => route.fulfill({
     status: 503,
     contentType: "application/json",
     body: JSON.stringify({ error: "审计模拟：天气源暂时不可用" }),
   }));
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "数据暂时不可用" })).toBeVisible();
-  await expectAccessible(page, "initial API failure");
+  await expectAccessible(page, "initial provider failure");
 });
 
 test("not-found route is actionable and accessible", async ({ page }) => {

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -121,16 +122,16 @@ for (const viewport of viewports) {
 }
 
 test("initial error state reconnects without clipping", async ({ page }) => {
-  let firstForecast = true;
+  let failForecast = true;
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.route("**/api/forecast**", async (route) => {
-    if (!firstForecast) return route.continue();
-    firstForecast = false;
-    return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "审计模拟：首次连接失败" }) });
+  await page.route("https://*.open-meteo.com/**", async (route) => {
+    if (!failForecast) return route.fallback();
+    return route.fulfill({ status: 503, json: { error: "审计模拟：首次连接失败" } });
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "数据暂时不可用" })).toBeVisible();
   await capture(page, "phone-390", "11-initial-error");
+  failForecast = false;
   await page.getByRole("button", { name: "重新连接" }).click();
   await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
   await expectHealthyLayout(page);

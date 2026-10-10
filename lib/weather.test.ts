@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CITIES } from "./cities";
-import { getForecast, openMeteoEndpoints } from "./weather";
+import { getForecast } from "./weather";
 
 const start = new Date("2026-08-03T00:00:00Z");
 const hourlyTime = Array.from({ length: 168 }, (_, index) => new Date(start.getTime() + index * 3_600_000).toISOString().slice(0, 16));
@@ -59,13 +59,18 @@ const airFixture = {
 describe("forecast subsystem degradation", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("uses distinct licensed customer endpoints when an Open-Meteo key is configured", () => {
-    expect(openMeteoEndpoints(null)).toEqual(expect.objectContaining({ access: "open-access", forecast: "https://api.open-meteo.com/v1/forecast" }));
-    expect(openMeteoEndpoints("licensed-key")).toEqual({
-      access: "customer",
-      forecast: "https://customer-api.open-meteo.com/v1/forecast",
-      air: "https://customer-air-quality-api.open-meteo.com/v1/air-quality",
+  it("uses only public, keyless endpoints in the browser build", async () => {
+    const urls: URL[] = [];
+    const response = await getForecast(CITIES[0], {
+      now: start,
+      fetcher: async (url) => {
+        urls.push(url);
+        return url.hostname.startsWith("air-quality") ? airFixture : isPath(url) ? pathFixture(url) : forecastFixture();
+      },
     });
+    expect(new Set(urls.map((url) => url.hostname))).toEqual(new Set(["api.open-meteo.com", "air-quality-api.open-meteo.com"]));
+    expect(urls.every((url) => !url.searchParams.has("apikey"))).toBe(true);
+    expect(response.provenance.access).toBe("open-access");
   });
 
   it("builds the complete seven-day contract from deterministic provider data", async () => {
@@ -200,5 +205,28 @@ describe("forecast subsystem degradation", () => {
     // Four models, four light-path requests and CAMS, each retried exactly once.
     expect([...attempts.values()]).toEqual(Array(9).fill(2));
     expect(response.days[0].dusk.lightPath.status).toBe("available");
+  });
+
+  it("uses browser fetch options and bypasses HTTP caching on explicit refresh", async () => {
+    const fetch = vi.fn(async (input: URL | RequestInfo, options?: RequestInit) => {
+      expect(options).toEqual({ cache: "no-store", signal: expect.any(AbortSignal) });
+      const url = new URL(input.toString());
+      return Response.json(url.hostname.startsWith("air-quality") ? airFixture : isPath(url) ? pathFixture(url) : forecastFixture());
+    });
+    vi.stubGlobal("fetch", fetch);
+    await getForecast(CITIES[0], { now: start, force: true });
+    expect(fetch).toHaveBeenCalledTimes(9);
+  });
+
+  it("cancels every provider request without retrying or replacing cancellation with an outage", async () => {
+    const controller = new AbortController();
+    const fetch = vi.fn((_input: URL | RequestInfo, options?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const result = getForecast(CITIES[0], { now: start, signal: controller.signal });
+    controller.abort();
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetch).toHaveBeenCalledTimes(9);
   });
 });

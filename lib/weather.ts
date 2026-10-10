@@ -38,6 +38,8 @@ type ForecastFetcher = (url: URL) => Promise<unknown>;
 interface ForecastOptions {
   fetcher?: ForecastFetcher;
   now?: Date;
+  signal?: AbortSignal;
+  force?: boolean;
 }
 
 const MODELS: ModelConfig[] = [
@@ -47,23 +49,8 @@ const MODELS: ModelConfig[] = [
   { id: "icon_global", name: "DWD ICON", role: "德国气象局全球模式，补充第三个独立预报中心视角" },
 ];
 
-const OPEN_METEO_API_KEY = process.env.OPEN_METEO_API_KEY?.trim() || null;
-export function openMeteoEndpoints(apiKey: string | null) {
-  return apiKey
-    ? {
-        forecast: "https://customer-api.open-meteo.com/v1/forecast",
-        air: "https://customer-air-quality-api.open-meteo.com/v1/air-quality",
-        access: "customer" as const,
-      }
-    : {
-        forecast: "https://api.open-meteo.com/v1/forecast",
-        air: "https://air-quality-api.open-meteo.com/v1/air-quality",
-        access: "open-access" as const,
-      };
-}
-const OPEN_METEO_ENDPOINTS = openMeteoEndpoints(OPEN_METEO_API_KEY);
-const FORECAST_URL = OPEN_METEO_ENDPOINTS.forecast;
-const AIR_URL = OPEN_METEO_ENDPOINTS.air;
+const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+const AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
 const HOURLY_FIELD_KEYS = [
   "temperature_2m",
   "dew_point_2m",
@@ -631,19 +618,20 @@ function formatDay(date: string) {
   };
 }
 
-async function fetchJson(url: URL): Promise<unknown> {
+async function fetchJson(url: URL, options: ForecastOptions): Promise<unknown> {
   let failure: unknown = new Error("Weather provider unavailable");
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    options.signal?.throwIfAborted();
     try {
       const response = await fetch(url, {
-        headers: { "User-Agent": "Jiguang-Sky-Forecast/0.1" },
-        next: { revalidate: 1800 },
-        signal: AbortSignal.timeout(6000),
+        cache: options.force ? "no-store" : "default",
+        signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000),
       });
       if (response.ok) return response.json() as Promise<unknown>;
       failure = new Error(`Weather provider returned ${response.status}`);
       if (response.status !== 429 && response.status < 500) break;
     } catch (error) {
+      options.signal?.throwIfAborted();
       failure = error;
     }
     if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 120));
@@ -690,7 +678,6 @@ async function fetchModel(city: City, model: ModelConfig, fetcher: ForecastFetch
     forecast_days: "7",
     models: model.id,
   }).toString();
-  if (OPEN_METEO_API_KEY) url.searchParams.set("apikey", OPEN_METEO_API_KEY);
   const payload = await fetcher(url);
   if (!validForecastPayload(payload)) throw new Error("Weather provider returned an invalid forecast payload");
   return payload;
@@ -731,7 +718,6 @@ async function fetchLightPath(city: City, model: ModelConfig, azimuths: { dawn: 
     forecast_days: "7",
     models: model.id,
   }).toString();
-  if (OPEN_METEO_API_KEY) url.searchParams.set("apikey", OPEN_METEO_API_KEY);
   const payload = await fetcher(url);
   if (!validPathPayload(payload, points.length)) throw new Error("Weather provider returned an invalid light-path payload");
   const count = LIGHT_PATH_DISTANCES_KM.length;
@@ -750,7 +736,6 @@ async function fetchAir(city: City, fetcher: ForecastFetcher) {
     timezone: city.timezone,
     forecast_days: "7",
   }).toString();
-  if (OPEN_METEO_API_KEY) url.searchParams.set("apikey", OPEN_METEO_API_KEY);
   const payload = await fetcher(url);
   if (!validAirPayload(payload)) throw new Error("Weather provider returned an invalid air-quality payload");
   return payload;
@@ -767,7 +752,8 @@ function chinaDate(at: Date, offsetDays = 0) {
 }
 
 export async function getForecast(city: City, options: ForecastOptions = {}): Promise<ForecastResponse> {
-  const fetcher = options.fetcher ?? fetchJson;
+  options.signal?.throwIfAborted();
+  const fetcher = options.fetcher ?? ((url: URL) => fetchJson(url, options));
   const now = options.now ?? new Date();
   // Mid-week azimuths: they drift < 3° over seven days, well inside the model grid spacing at 40–350 km.
   const midWeek = getSunRiseSet(city, chinaDate(now, 3));
@@ -777,6 +763,7 @@ export async function getForecast(city: City, options: ForecastOptions = {}): Pr
     Promise.all(MODELS.map((config) => fetchLightPath(city, config, azimuths, fetcher).catch(() => null))),
     fetchAir(city, fetcher).catch(() => null),
   ]);
+  options.signal?.throwIfAborted();
   const available: ModelRun[] = modelResults.flatMap((result, index) => result.status === "fulfilled" ? [{ ...result.value, path: pathResults[index] }] : []);
   if (!available.length) throw new Error("当前天气源暂时不可用，请稍后再试");
 
@@ -836,7 +823,7 @@ export async function getForecast(city: City, options: ForecastOptions = {}): Pr
     ],
     provenance: {
       delivery: "Open-Meteo",
-      access: OPEN_METEO_ENDPOINTS.access,
+      access: "open-access",
       license: "CC BY 4.0",
       modelGuidance: true,
       warningAuthority: false,

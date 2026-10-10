@@ -11,9 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev            # next dev
 npm run lint           # eslint (flat config, next core-web-vitals + typescript)
-npm run typecheck      # tsc --noEmit
+npm run typecheck      # next typegen + tsc --noEmit
 npm test               # vitest run lib app  (node environment)
-npm run build && npm run test:e2e   # Playwright needs a production server
+npm run build && npm run test:e2e   # Playwright needs the static export
 npm run check          # lint + typecheck + test + build
 npm run verify         # check + test:e2e + verify:audit  (the full gate)
 ```
@@ -26,7 +26,7 @@ npx vitest run -t "continues with one weather model"
 npx playwright test e2e/glow.spec.ts -g "weather workspace"
 ```
 
-Playwright's `webServer` runs `npm run start` with `reuseExistingServer: true`, so build first (or leave a `next start` running). `npm run verify:audit` reads `test-results/playwright-results.json`, so it is only meaningful after a **full**, unfiltered `test:e2e` run.
+Playwright's `webServer` runs `npm run start` (a static file preview of `out/`) with `reuseExistingServer: false`, so build first. Tests intercept public providers with raw deterministic fixtures; all calculations still run in the browser. `npm run verify:audit` reads `test-results/playwright-results.json`, so it is only meaningful after a **full**, unfiltered `test:e2e` run.
 
 ## Architecture
 
@@ -51,15 +51,15 @@ Open-Meteo (ECMWF IFS HRES 9km + CMA GRAPES 15km + NOAA GFS + DWD ICON + CAMS ai
             plus 4 light-path points 40/120/220/350 km toward sunrise/sunset azimuth)
   → lib/weather.ts        getForecast() → ForecastResponse (7 days + 168 hourly + sources + provenance)
   → lib/opportunities.ts  buildDailyOpportunities(day, city, spaceWeather) → 9 DailyOpportunity, sorted by peak
-NOAA SWPC Kp  → lib/space-weather.ts → SpaceWeatherResponse (separate route, separate failure domain)
+NOAA SWPC Kp  → lib/space-weather.ts → SpaceWeatherResponse (separate browser request, separate failure domain)
 ```
 
-`lib/types.ts` is the single contract between server and client — start there when tracing anything.
+`lib/types.ts` is the single contract between browser data processing and UI — start there when tracing anything.
 
-Two API routes, deliberately independent so an aurora/space-weather outage never 503s the ordinary weather:
+The app is backend-free: `output: "export"` generates `out/`, and `.github/workflows/pages.yml` publishes it to `https://glow.genisisiq.com`. There are no local API routes or private provider keys. Data sources must allow browser CORS requests.
 
-- `app/api/forecast/route.ts` — validates the city or `lat`/`lon`, gates coordinates through `isWithinChina()` (400 outside), applies an in-memory per-IP rate limit to coordinate requests (90/min, per instance only), caches `s-maxage=1800`.
-- `app/api/space-weather/route.ts` — on any failure returns `unavailableSpaceWeather()` with HTTP 200 and `status: "unavailable"`, never an error status.
+- `lib/browser-data.ts` — validates coordinates with `isWithinChina()`, caches at most 20 locations for 10 minutes in page memory (invalidated at China midnight), and supports abort/forced refresh. No shared cache or per-IP rate limit.
+- `spaceWeatherForecast()` — independently caches NOAA for 15 minutes; logs failures and returns `unavailableSpaceWeather()` for 2 minutes, without breaking ordinary weather.
 
 ### Scoring model convention
 
@@ -78,11 +78,11 @@ Open-Meteo returns naive local strings (`"2026-08-03T05:20"`); ISO instants end 
 
 `components/weather-map.tsx` (MapLibre GL, dynamically imported with `ssr: false`). Bearing lines are a **DOM overlay** re-projected on every `move`, not GeoJSON layers — an earlier double-drawn implementation was removed, so don't reintroduce map-layer direction lines. Only the currently selected item's direction is drawn; line length carries no distance meaning. Bounds are locked to China (`maxBounds: [[69,12],[140,57]]`).
 
-The basemap is OpenFreeMap vector tiles. MapLibre 6 cannot locate its tile worker from inside the Next bundle, so `scripts/copy-maplibre-worker.mjs` (run by `predev`/`prebuild`) copies `maplibre-gl-worker.mjs` + `maplibre-gl-shared.mjs` into the git-ignored `public/maplibre/`, and the map calls `setWorkerUrl()`. `proxy.ts` excludes `/maplibre/` so the worker's module import is not subject to the document's nonce CSP. If the map is blank but style/sprite requests succeed and no `.pbf` tiles are fetched, the worker failed to load.
+The basemap is OpenFreeMap vector tiles. MapLibre 6 cannot locate its tile worker from inside the Next bundle, so `scripts/copy-maplibre-worker.mjs` (run by `predev`/`prebuild`) copies `maplibre-gl-worker.mjs` + `maplibre-gl-shared.mjs` into the git-ignored `public/maplibre/`, and the map calls `setWorkerUrl()`. If the map is blank but style/sprite requests succeed and no `.pbf` tiles are fetched, the worker failed to load.
 
 ### Security
 
-`proxy.ts` is Next.js 16's middleware equivalent: it mints a per-request nonce and sets a `strict-dynamic` CSP; `next.config.ts` adds the static headers. `e2e/security.spec.ts` asserts the nonce is unique per request, that every server-rendered `<script>` carries it, and that an injected inline handler is blocked. Inline `<script>` without the nonce and inline event attributes will fail that test.
+`scripts/secure-static-export.mjs` runs after build and inserts CSP meta before all scripts in each exported HTML, authorizing inline Next bootstrap scripts with SHA-256 hashes. `e2e/security.spec.ts` verifies hashes, blocks untrusted inline scripts/handlers and confirms no backend routes exist. Rebuild hashes after changing exported HTML. GitHub Pages controls HTTP-only policies (HSTS, COOP, anti-framing); meta CSP cannot provide them. Never expose private keys through browser code or `NEXT_PUBLIC_*`.
 
 ## Data-honesty constraints
 
@@ -106,6 +106,6 @@ Adding or removing a spec, workspace, or audit state means updating that script 
 
 ## Reference docs
 
-- `docs/data-research.md` — why these sources, licensing (Open-Meteo open vs. `OPEN_METEO_API_KEY` customer endpoints), and per-source limits.
+- `docs/data-research.md` — why these sources, non-commercial Open-Meteo licensing, browser CORS, and per-source limits.
 - `docs/weather-tools-architecture.md` — the three-workspace decision, shared state model, extension contract.
 - `docs/professional-photography-audit.md` — the review matrix, including the P0/P1 gaps deliberately left unimplemented (light pollution, terrain horizon, Milky Way geometry, persistence/sharing, score calibration).
