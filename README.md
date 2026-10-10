@@ -2,6 +2,10 @@
 
 霁光把风光摄影计划收敛成三个共享地点、日期和数据上下文的工作区：先看每日可拍什么，再检查云雨风，最后规划罕见天象。它不再要求用户在霞光、雾、太阳、月亮等十个孤立工具之间来回切换。
 
+网站地址：[https://glow.genisisiq.com](https://glow.genisisiq.com)。代码仓库：[vibewatch/Glow](https://github.com/vibewatch/Glow)。
+
+部署需要支持 Next.js 服务端的运行环境，以提供天气 API 和动态安全响应头；GitHub Pages 仅支持静态内容，配置自定义域名并不代表完整应用已部署。
+
 ## 三个工作区
 
 ### 每日拍摄机会
