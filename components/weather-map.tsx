@@ -3,6 +3,7 @@
 import * as maplibregl from "maplibre-gl";
 import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap, MapMouseEvent, Marker, StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocale } from "@/components/locale-context";
 import type { City, MapAnnotation, WorkspaceMode } from "@/lib/types";
 
 interface WeatherMapProps {
@@ -13,16 +14,18 @@ interface WeatherMapProps {
   onPick: (latitude: number, longitude: number) => Promise<boolean>;
 }
 
-/** OpenFreeMap serves OpenMapTiles vector tiles without an API key; labels are switched to Chinese below. */
+/** OpenFreeMap serves OpenMapTiles vector tiles without an API key; labels follow the selected language. */
 const DEFAULT_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const CUSTOM_MAP_STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
 const MAP_STYLE = CUSTOM_MAP_STYLE || DEFAULT_MAP_STYLE;
-const CHINESE_LABEL: ExpressionSpecification = ["coalesce", ["get", "name:zh"], ["get", "name"]];
 /** Copied from node_modules by scripts/copy-maplibre-worker.mjs; the bundled module cannot locate its own worker. */
 const WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 
-/** Show Chinese place names and drop street-level clutter that competes with the forecast overlays. */
-function localizeStyle(map: MapLibreMap) {
+/** Localize place names and drop street-level clutter that competes with forecast overlays. */
+function localizeStyle(map: MapLibreMap, locale: "zh" | "en") {
+  const label: ExpressionSpecification = locale === "en"
+    ? ["coalesce", ["get", "name:en"], ["get", "name"]]
+    : ["coalesce", ["get", "name:zh"], ["get", "name"]];
   const style: StyleSpecification = map.getStyle();
   for (const layer of style.layers) {
     if (layer.type !== "symbol") continue;
@@ -30,7 +33,7 @@ function localizeStyle(map: MapLibreMap) {
       map.setLayoutProperty(layer.id, "visibility", "none");
       continue;
     }
-    if (layer.layout?.["text-field"]) map.setLayoutProperty(layer.id, "text-field", CHINESE_LABEL);
+    if (layer.layout?.["text-field"]) map.setLayoutProperty(layer.id, "text-field", label);
   }
 }
 
@@ -57,6 +60,7 @@ function pointData(location: City, score: number, mode: WorkspaceMode) {
 }
 
 export default function WeatherMap({ location, mode, score, annotations, onPick }: WeatherMapProps) {
+  const { locale, t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const directionOverlayRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -65,6 +69,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
   const pickRef = useRef(onPick);
   const initialRef = useRef({ location, mode, score });
   const directionRef = useRef({ location, annotations });
+  const localeRef = useRef(locale);
   const [ready, setReady] = useState(false);
   const [warning, setWarning] = useState(false);
 
@@ -116,7 +121,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
     map.addControl(new maplibregl.AttributionControl({
       compact: true,
       // The style's own sources already carry the OpenStreetMap / OpenMapTiles credits.
-      customAttribution: "天气 · Open-Meteo 多模式指导",
+      customAttribution: "天气 / Weather · Open-Meteo",
     }), "bottom-left");
 
     const markerNode = document.createElement("div");
@@ -124,7 +129,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
     const ring = document.createElement("span");
     const dot = document.createElement("i");
     const label = document.createElement("b");
-    label.textContent = "拖动定位";
+    label.textContent = localeRef.current === "en" ? "Drag to relocate" : "拖动定位";
     markerNode.append(ring, dot, label);
     const marker = new maplibregl.Marker({ element: markerNode, draggable: true, anchor: "center" })
       .setLngLat([initial.location.longitude, initial.location.latitude])
@@ -154,7 +159,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
     map.on("move", () => positionDirectionOverlay(map));
     map.on("error", () => setWarning(true));
     map.once("style.load", () => {
-      if (!CUSTOM_MAP_STYLE) localizeStyle(map);
+      if (!CUSTOM_MAP_STYLE) localizeStyle(map, localeRef.current);
       map.addSource("forecast-point", { type: "geojson", data: pointData(initial.location, initial.score, initial.mode) });
       map.addLayer({
         id: "forecast-halo",
@@ -181,6 +186,14 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
   }, [positionDirectionOverlay]);
 
   useEffect(() => {
+    localeRef.current = locale;
+    const label = markerRef.current?.getElement().querySelector("b");
+    if (label) label.textContent = t("拖动定位");
+    const map = mapRef.current;
+    if (map?.isStyleLoaded() && !CUSTOM_MAP_STYLE) localizeStyle(map, locale);
+  }, [locale, t]);
+
+  useEffect(() => {
     directionRef.current = { location, annotations };
     const map = mapRef.current;
     const marker = markerRef.current;
@@ -199,7 +212,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
   }, [annotations, location, mode, positionDirectionOverlay, score]);
 
   return (
-    <div className="weather-map" ref={containerRef} data-map-ready={ready ? "true" : "false"} role="region" aria-label="可点击和拖动定位点的中国天气地图">
+    <div className="weather-map" ref={containerRef} data-map-ready={ready ? "true" : "false"} role="region" aria-label={t("可点击和拖动定位点的中国天气地图")}>
       <div className="map-direction-overlay" ref={directionOverlayRef} aria-hidden="true">
         {annotations.map((annotation) => (
           <span className="map-bearing" key={annotation.id}>
@@ -208,8 +221,8 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
           </span>
         ))}
       </div>
-      {!ready && <div className="map-loading"><span /><p>正在绘制地理底图</p></div>}
-      {warning && <div className="map-warning">部分底图瓦片暂不可用，定位与预测仍可使用</div>}
+      {!ready && <div className="map-loading"><span /><p>{t("正在绘制地理底图")}</p></div>}
+      {warning && <div className="map-warning">{t("部分底图瓦片暂不可用，定位与预测仍可使用")}</div>}
     </div>
   );
 }

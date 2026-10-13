@@ -14,7 +14,7 @@ async function secureDirectory(directory) {
         .map((match) => `'sha256-${createHash("sha256").update(match[2]).digest("base64")}'`);
       const policy = [
         "default-src 'self'",
-        `script-src 'self' ${[...new Set(hashes)].join(" ")}`,
+        `script-src 'self' https://www.googletagmanager.com ${[...new Set(hashes)].join(" ")}`,
         "script-src-attr 'none'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' blob: data: https:",

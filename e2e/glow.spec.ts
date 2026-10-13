@@ -143,6 +143,24 @@ test("mobile keeps three workspaces, map timeline, and panels free of horizontal
     await page.getByTitle(workspace, { exact: true }).click();
     await expect(page.locator(".photo-workspace")).toHaveAttribute("data-workspace", workspace === "专业天气" ? "weather" : workspace === "罕见天象" ? "events" : "opportunities");
   }
+  await page.getByRole("button", { name: "EN" }).click();
+  await expect(page.getByRole("heading", { name: "Daily opportunities" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Workspaces" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByTitle("Weather", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Weather workspace" })).toBeVisible();
+  await page.getByRole("tab", { name: "Rain" }).click();
+  await expect(page.getByLabel("Rain details")).toContainText("Probability and amount are shown separately");
+  await page.getByTitle("Celestial events", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Celestial events" })).toBeVisible();
+  await expect(page.getByText("Use geometry for long range, weather when near", { exact: true })).toBeVisible();
+  await page.getByTitle("Daily opportunities", { exact: true }).click();
+  const englishOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(englishOverflow).toBeLessThanOrEqual(1);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Daily opportunities" })).toBeVisible();
+  await page.getByRole("button", { name: "CN" }).click();
+  await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });

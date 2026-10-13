@@ -6,6 +6,7 @@ import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/brand-mark";
 import { EventsCatalog, EventsDock, EventsPanel, buildRareEvents, type RareEvent } from "@/components/events-workspace";
+import { useLocale } from "@/components/locale-context";
 import { OpportunityCatalog, OpportunityDock, OpportunityPanel } from "@/components/opportunity-workspace";
 import { WeatherCatalog, WeatherDock, WeatherPanel } from "@/components/weather-workspace";
 import { closestHour, compass, forecastInstant, localTime } from "@/components/workspace-common";
@@ -14,9 +15,14 @@ import { coordinateCity, forecastForLocation, spaceWeatherForecast } from "@/lib
 import { buildDailyOpportunities } from "@/lib/opportunities";
 import type { City, DailyOpportunity, ForecastResponse, HourlyWeatherPoint, MapAnnotation, OpportunityKind, SpaceWeatherResponse, WeatherView, WorkspaceMode } from "@/lib/types";
 
+function MapLoading() {
+  const { t } = useLocale();
+  return <div className="map-module-loading"><span /><p>{t("地图引擎启动中")}</p></div>;
+}
+
 const WeatherMap = dynamic(() => import("@/components/weather-map"), {
   ssr: false,
-  loading: () => <div className="map-module-loading"><span /><p>地图引擎启动中</p></div>,
+  loading: () => <MapLoading />,
 });
 
 type LoadingState = "loading" | "updating" | "ready" | "error";
@@ -36,6 +42,7 @@ const WORKSPACES: WorkspaceDefinition[] = [
 ];
 
 function LocationSearch({ current, onSelect, onLocate }: { current: City; onSelect: (city: City) => void; onLocate: () => void }) {
+  const { locale, t } = useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -44,8 +51,8 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return CITIES.slice(0, 9);
-    return CITIES.filter((city) => `${city.name}${city.province}${city.region}${city.id}`.toLowerCase().includes(keyword)).slice(0, 10);
-  }, [query]);
+    return CITIES.filter((city) => `${city.name}${city.province}${city.region}${city.id}${t(city.name)}${t(city.province)}`.toLowerCase().includes(keyword)).slice(0, 10);
+  }, [query, t]);
 
   useEffect(() => {
     const dismiss = (event: PointerEvent) => {
@@ -103,7 +110,7 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
         <input
           ref={inputRef}
           role="combobox"
-          aria-label="搜索中国城市"
+          aria-label={t("搜索中国城市")}
           aria-autocomplete="list"
           aria-controls="city-search-results"
           aria-expanded={open}
@@ -112,14 +119,14 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
           onFocus={() => setOpen(true)}
           onChange={(event) => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1); }}
           onKeyDown={handleKeyDown}
-          placeholder={`${current.name} · 搜索城市或在地图落点`}
+          placeholder={locale === "en" ? `${t(current.name)} · Search a city or click the map` : `${current.name} · 搜索城市或在地图落点`}
         />
-        {query ? <button type="button" aria-label="清空搜索" onClick={() => { setQuery(""); setActiveIndex(-1); inputRef.current?.focus(); }}><X size={14} /></button> : <span className="search-shortcut">⌘/Ctrl K</span>}
+        {query ? <button type="button" aria-label={t("清空搜索")} onClick={() => { setQuery(""); setActiveIndex(-1); inputRef.current?.focus(); }}><X size={14} /></button> : <span className="search-shortcut">⌘/Ctrl K</span>}
       </div>
       {open && (
         <div className="workspace-results">
-          <div className="results-caption"><span>常用观测地</span><small>{filtered.length} 个结果</small></div>
-          <div id="city-search-results" className="results-listbox" role="listbox" aria-label="城市搜索结果">
+          <div className="results-caption"><span>{t("常用观测地")}</span><small>{locale === "en" ? `${filtered.length} results` : `${filtered.length} 个结果`}</small></div>
+          <div id="city-search-results" className="results-listbox" role="listbox" aria-label={t("城市搜索结果")}>
             {filtered.map((city, index) => (
               <button
                 key={city.id}
@@ -132,13 +139,13 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
                 onClick={() => selectCity(city)}
               >
                 <MapPin size={14} />
-                <span><strong>{city.name}</strong><small>{city.province} · {city.latitude.toFixed(2)}°N</small></span>
+                <span><strong>{t(city.name)}</strong><small>{t(city.province)} · {city.latitude.toFixed(2)}°N</small></span>
                 {current.id === city.id && <Check size={14} />}
               </button>
             ))}
           </div>
-          {!filtered.length && <p className="results-empty">未找到城市，可直接在地图上点击任意中国天气区域内的位置。</p>}
-          <button className="result-locate" type="button" onClick={() => { onLocate(); setOpen(false); setActiveIndex(-1); }}><LocateFixed size={15} /> 使用当前定位</button>
+          {!filtered.length && <p className="results-empty">{t("未找到城市，可直接在地图上点击任意中国天气区域内的位置。")}</p>}
+          <button className="result-locate" type="button" onClick={() => { onLocate(); setOpen(false); setActiveIndex(-1); }}><LocateFixed size={15} /> {t("使用当前定位")}</button>
         </div>
       )}
     </div>
@@ -146,21 +153,22 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
 }
 
 function WorkspaceNavigation({ active, onChange }: { active: WorkspaceMode; onChange: (mode: WorkspaceMode) => void }) {
+  const { t } = useLocale();
   return (
-    <nav className="workspace-navigation" aria-label="工作区">
+    <nav className="workspace-navigation" aria-label={t("工作区")}>
       {WORKSPACES.map((workspace) => {
         const Icon = workspace.icon;
         return (
           <button
             type="button"
             key={workspace.id}
-            aria-label={workspace.label}
+            aria-label={t(workspace.label)}
             aria-current={active === workspace.id ? "page" : undefined}
             onClick={() => onChange(workspace.id)}
-            title={workspace.label}
+            title={t(workspace.label)}
           >
-            <Icon size={16} /><strong>{workspace.shortLabel}</strong>
-            <span className="mode-tooltip" aria-hidden="true"><b>{workspace.label}</b><small>{workspace.description}</small></span>
+            <Icon size={16} /><strong>{t(workspace.shortLabel)}</strong>
+            <span className="mode-tooltip" aria-hidden="true"><b>{t(workspace.label)}</b><small>{t(workspace.description)}</small></span>
           </button>
         );
       })}
@@ -169,12 +177,15 @@ function WorkspaceNavigation({ active, onChange }: { active: WorkspaceMode; onCh
 }
 
 function SourceHealth({ sources, generatedAt }: { sources?: ForecastResponse["sources"]; generatedAt?: string }) {
+  const { locale } = useLocale();
   const available = sources?.filter((source) => source.status === "available").length ?? 0;
   const updated = generatedAt ? localTime(generatedAt) : null;
-  const label = sources ? `${available}/${sources.length} 个天气数据源在线${updated ? `，${updated} 更新` : ""}` : "天气数据加载中";
+  const label = sources
+    ? locale === "en" ? `${available}/${sources.length} weather sources online${updated ? ` · updated ${updated}` : ""}` : `${available}/${sources.length} 个天气数据源在线${updated ? `，${updated} 更新` : ""}`
+    : locale === "en" ? "Loading weather data" : "天气数据加载中";
   return (
     <span className="header-health" role="status" title={label} data-state={!sources ? "loading" : available === sources.length ? "healthy" : "degraded"}>
-      <Database size={13} /><i aria-hidden="true" />{sources ? `${available}/${sources.length}${updated ? ` · ${updated}` : ""}` : "连接中"}
+      <Database size={13} /><i aria-hidden="true" />{sources ? `${available}/${sources.length}${updated ? ` · ${updated}` : ""}` : locale === "en" ? "Connecting" : "连接中"}
     </span>
   );
 }
@@ -211,6 +222,7 @@ function mapScore(workspace: WorkspaceMode, opportunity: DailyOpportunity | unde
 }
 
 export function GlowDashboard() {
+  const { locale, setLocale, t } = useLocale();
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [spaceWeather, setSpaceWeather] = useState<SpaceWeatherResponse | null>(null);
   const [status, setStatus] = useState<LoadingState>("loading");
@@ -336,16 +348,16 @@ export function GlowDashboard() {
   const annotations = useMemo<MapAnnotation[]>(() => {
     if (workspace === "opportunities" && selectedOpportunity?.direction) {
       const colors: Partial<Record<OpportunityKind, string>> = { "dawn-glow": "#e9a84b", sunrise: "#e9a84b", sunset: "#d96948", "dusk-glow": "#d96948", moon: "#7466a6", rainbow: "#8a5f9e", aurora: "#3d8f72" };
-      return [{ id: selectedOpportunity.id, label: `${selectedOpportunity.direction.label} ${Math.round(selectedOpportunity.direction.azimuth)}°`, azimuth: selectedOpportunity.direction.azimuth, color: colors[selectedOpportunity.id] ?? "#b45135", dashed: true }];
+      return [{ id: selectedOpportunity.id, label: `${t(selectedOpportunity.direction.label)} ${Math.round(selectedOpportunity.direction.azimuth)}°`, azimuth: selectedOpportunity.direction.azimuth, color: colors[selectedOpportunity.id] ?? "#b45135", dashed: true }];
     }
     if (workspace === "weather" && selectedWeather?.windDirection !== null && selectedWeather?.windDirection !== undefined) {
-      return [{ id: "wind", label: `来风 ${compass(selectedWeather.windDirection)}`, azimuth: selectedWeather.windDirection, color: "#4b7185" }];
+      return [{ id: "wind", label: `${locale === "en" ? "Wind from" : "来风"} ${compass(selectedWeather.windDirection, locale)}`, azimuth: selectedWeather.windDirection, color: "#4b7185" }];
     }
     if (workspace === "events" && selectedEvent?.azimuth !== null && selectedEvent?.azimuth !== undefined) {
-      return [{ id: "event", label: `${selectedEvent.kind === "meteor-shower" ? "辐射点" : selectedEvent.kind === "solar-eclipse" ? "太阳方位" : "月亮方位"} ${Math.round(selectedEvent.azimuth)}°`, azimuth: selectedEvent.azimuth, color: selectedEvent.kind === "solar-eclipse" ? "#d97735" : "#675c93", dashed: true }];
+      return [{ id: "event", label: `${selectedEvent.kind === "meteor-shower" ? t("辐射点") : selectedEvent.kind === "solar-eclipse" ? locale === "en" ? "Sun azimuth" : "太阳方位" : locale === "en" ? "Moon azimuth" : "月亮方位"} ${Math.round(selectedEvent.azimuth)}°`, azimuth: selectedEvent.azimuth, color: selectedEvent.kind === "solar-eclipse" ? "#d97735" : "#675c93", dashed: true }];
     }
     return [];
-  }, [selectedEvent, selectedOpportunity, selectedWeather, workspace]);
+  }, [locale, selectedEvent, selectedOpportunity, selectedWeather, t, workspace]);
 
   const mapFieldPoint = workspace === "weather" ? selectedWeather
     : workspace === "opportunities" && data ? closestHour(data.hourly, new Date(selectedInstant).toISOString())
@@ -355,23 +367,27 @@ export function GlowDashboard() {
 
   return (
     <main className="photo-workspace" data-workspace={workspace}>
-      <a className="skip-link" href="#workspace">跳到摄影工作区</a>
+      <a className="skip-link" href="#workspace">{t("跳到摄影工作区")}</a>
 
       <header className="workspace-header">
         <div className="workspace-brand"><BrandMark /><span className="product-edition">PRO</span></div>
         <WorkspaceNavigation active={workspace} onChange={setWorkspace} />
         <LocationSearch current={current} onSelect={(city) => { void loadForecast(city); }} onLocate={locate} />
         <div className="header-status">
-          <span className="sr-only" role="status" aria-live="polite">{status === "loading" ? "正在加载天气数据" : status === "updating" ? "正在刷新当前预测" : status === "error" ? "天气数据加载失败" : "预测已更新"}</span>
+          <div className="locale-switch" role="group" aria-label={locale === "en" ? "Language" : "语言"}>
+            <button type="button" aria-pressed={locale === "en"} onClick={() => setLocale("en")}>EN</button>
+            <button type="button" aria-pressed={locale === "zh"} onClick={() => setLocale("zh")}>CN</button>
+          </div>
+          <span className="sr-only" role="status" aria-live="polite">{t(status === "loading" ? "正在加载天气数据" : status === "updating" ? "正在刷新当前预测" : status === "error" ? "天气数据加载失败" : "预测已更新")}</span>
           <SourceHealth sources={data?.sources} generatedAt={data?.generatedAt} />
           <button
             type="button"
             className={`refresh-forecast ${status === "updating" ? "syncing" : ""}`}
             onClick={() => { void loadForecast(currentCityRef.current, true); void loadSpaceWeather(true); }}
             disabled={status === "loading" || status === "updating"}
-            aria-label="刷新当前预测"
-          ><RefreshCw size={14} /><span>{status === "updating" ? "刷新中" : "刷新预测"}</span></button>
-          <button type="button" className="icon-button" onClick={locate} aria-label="定位我的位置"><Crosshair size={16} /></button>
+            aria-label={t("刷新当前预测")}
+          ><RefreshCw size={14} /><span>{t(status === "updating" ? "刷新中" : "刷新预测")}</span></button>
+          <button type="button" className="icon-button" onClick={locate} aria-label={t("定位我的位置")}><Crosshair size={16} /></button>
         </div>
       </header>
 
@@ -381,7 +397,7 @@ export function GlowDashboard() {
             : workspace === "weather" ? <WeatherCatalog day={day} hours={dayHours} selectedTime={selectedWeather.time} onHour={(point) => setWeatherTime(point.time)} />
               : <EventsCatalog data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
         ) : (
-          <section className="catalog-rail catalog-loading" aria-label="工作区加载中">
+          <section className="catalog-rail catalog-loading" aria-label={t("工作区加载中")}>
             <div className="loading-heading"><span /><div><i /><b /></div></div>
             <div className="loading-block" /><div className="loading-block short" />
           </section>
@@ -390,26 +406,26 @@ export function GlowDashboard() {
         <section className="map-stage">
           <WeatherMap location={current} mode={workspace} score={score} annotations={annotations} onPick={pickCoordinate} />
           <div className="coordinate-hud">
-            <span><i />{current.name}</span>
+            <span><i />{t(current.name)}</span>
             <strong>{current.latitude.toFixed(4)}°N</strong>
             <strong>{current.longitude.toFixed(4)}°E</strong>
-            <small>WGS 84 · 点击地图或拖动标记改变观测点</small>
+            <small>{t("WGS 84 · 点击地图或拖动标记改变观测点")}</small>
           </div>
           {annotations.length > 0 && (
             <div className="map-direction-legend">
               <span style={{ "--legend-color": annotations[0].color } as React.CSSProperties}>{annotations[0].label}</span>
-              <small>辅助线只表示方位，长度不表示距离</small>
+              <small>{t("辅助线只表示方位，长度不表示距离")}</small>
             </div>
           )}
           {mapFieldPoint && (
             <div className="map-scale-readout" aria-hidden="true">
               <b>{localTime(mapFieldPoint.time)}</b>
               <span>{mapFieldPoint.temperature?.toFixed(0) ?? "—"}°</span>
-              <span>云 {mapFieldPoint.totalCloud === null ? "—" : `${Math.round(mapFieldPoint.totalCloud)}%`}</span>
+              <span>{t("云")} {mapFieldPoint.totalCloud === null ? "—" : `${Math.round(mapFieldPoint.totalCloud)}%`}</span>
               <span>{mapFieldPoint.windSpeed?.toFixed(0) ?? "—"} km/h</span>
             </div>
           )}
-          {status === "updating" && <div className="map-recalculating"><RefreshCw />正在为新落点重算 168 小时数据</div>}
+          {status === "updating" && <div className="map-recalculating"><RefreshCw />{t("正在为新落点重算 168 小时数据")}</div>}
         </section>
 
         {ready && data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
@@ -417,10 +433,10 @@ export function GlowDashboard() {
             : workspace === "weather" ? <WeatherPanel data={data} point={selectedWeather} hours={dayHours} view={weatherView} onView={setWeatherView} />
               : <EventsPanel data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
         ) : (
-          <aside className="inspector inspector-loading" aria-label="详情加载中">
+          <aside className="inspector inspector-loading" aria-label={t("详情加载中")}>
             <div className="loading-heading"><span /><div><i /><b /></div></div>
             <div className="loading-score" /><div className="loading-block" /><div className="loading-block short" />
-            {status === "error" && <div className="workspace-error"><AlertTriangle /><h1>数据暂时不可用</h1><p>{error}</p><button type="button" onClick={() => { void loadForecast(currentCityRef.current, true); }}>重新连接</button></div>}
+            {status === "error" && <div className="workspace-error"><AlertTriangle /><h1>{t("数据暂时不可用")}</h1><p>{error ? t(error) : null}</p><button type="button" onClick={() => { void loadForecast(currentCityRef.current, true); }}>{t("重新连接")}</button></div>}
           </aside>
         )}
       </div>
@@ -433,8 +449,8 @@ export function GlowDashboard() {
         <div className="planner-timeline dock-loading" aria-hidden="true"><span /><span /></div>
       )}
 
-      <span className="sr-only" role="status" aria-live="polite">当前工作区 {WORKSPACES.find((item) => item.id === workspace)?.label}，地点 {current.name}</span>
-      {error && data && <div className="workspace-toast" role="alert"><AlertTriangle size={16} /><span>{error}</span><button type="button" aria-label="关闭错误提示" onClick={() => setError(null)}><X size={14} /></button></div>}
+      <span className="sr-only" role="status" aria-live="polite">{locale === "en" ? `Current workspace: ${t(WORKSPACES.find((item) => item.id === workspace)?.label ?? "")}; location: ${t(current.name)}` : `当前工作区 ${WORKSPACES.find((item) => item.id === workspace)?.label}，地点 ${current.name}`}</span>
+      {error && data && <div className="workspace-toast" role="alert"><AlertTriangle size={16} /><span>{t(error)}</span><button type="button" aria-label={t("关闭错误提示")} onClick={() => setError(null)}><X size={14} /></button></div>}
     </main>
   );
 }

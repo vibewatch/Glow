@@ -10,12 +10,14 @@ test("static export uses hash CSP and rejects untrusted inline scripts", async (
   expect(policy).toContain("object-src 'none'");
   const scriptPolicy = policy?.split("; ").find((directive) => directive.startsWith("script-src "));
   expect(scriptPolicy).toBeTruthy();
+  expect(scriptPolicy).toContain("https://www.googletagmanager.com");
   expect(scriptPolicy).not.toContain("'unsafe-inline'");
   expect(policy).not.toContain("'unsafe-eval'");
   expect(policy).not.toContain("'nonce-");
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "strict-origin-when-cross-origin");
 
   const serverHtml = await response!.text();
+  expect(serverHtml).toContain("G-6W7F2188X6");
   const inlineScripts = [...serverHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
     .filter((match) => !/\bsrc\s*=/.test(match[1]) && match[2]);
   expect(inlineScripts.length).toBeGreaterThan(0);
