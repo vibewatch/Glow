@@ -294,8 +294,10 @@ a { color: inherit; text-decoration: none; }
 .curve-horizon { stroke: #6b7074; stroke-width: 1; stroke-dasharray: 2 3; }
 .curve-cursor { stroke: #202225; stroke-width: 1.2; }
 .curve-peak { fill: var(--white); stroke: var(--orange); stroke-width: 2; }
-.glow-curve figcaption { position: relative; height: 16px; margin-top: 3px; display: flex; justify-content: space-between; color: var(--muted); font: 10px var(--mono); }
+.glow-curve figcaption { position: relative; height: 16px; margin-top: 3px; overflow: hidden; display: flex; justify-content: space-between; color: var(--muted); font: 10px var(--mono); }
 .curve-horizon-label { position: absolute; top: 0; transform: translateX(-50%); color: var(--ink-soft); white-space: nowrap; }
+.curve-horizon-label[data-align="start"] { transform: none; }
+.curve-horizon-label[data-align="end"] { transform: translateX(-100%); }
 .section-cloud.low { fill: #7d6a5f; }
 .section-cloud.mid { fill: #6f7690; }
 .section-cloud.high { fill: #8ea3b3; }

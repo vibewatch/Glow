@@ -51,6 +51,7 @@ function GlowCurve({ event, horizonAt, cursor }: { event: EventForecast; horizon
   const horizonX = horizon !== null && horizon >= first && horizon <= last ? x(horizon) : null;
   const cursorX = cursor !== null && cursor >= first && cursor <= last ? x(cursor) : null;
   const horizonLabel = t(event.kind === "dawn" ? "日出" : "日落");
+  const horizonAlign = horizonX === null ? "center" : horizonX < 64 ? "start" : horizonX > CURVE_W - 64 ? "end" : "center";
   return (
     <figure className="glow-curve">
       <svg viewBox={`0 0 ${CURVE_W} ${CURVE_TOP + CURVE_H + 2}`} role="img" aria-label={locale === "en" ? `${t(event.kind === "dawn" ? "朝霞" : "晚霞")} opportunity index over time, peak ${localTime(event.time)}, high-index window ${localTime(event.window.start)}–${localTime(event.window.end)}` : `${event.kind === "dawn" ? "朝霞" : "晚霞"}机会指数随时间变化，峰值 ${localTime(event.time)}，高指数窗口 ${localTime(event.window.start)}–${localTime(event.window.end)}`}>
@@ -64,7 +65,7 @@ function GlowCurve({ event, horizonAt, cursor }: { event: EventForecast; horizon
       </svg>
       <figcaption>
         <span>{localTime(points[0].time)}</span>
-        {horizonX !== null && <span className="curve-horizon-label" style={{ left: `${horizonX / CURVE_W * 100}%` }}>{horizonLabel} {localTime(horizonAt)}</span>}
+        {horizonX !== null && <span className="curve-horizon-label" data-align={horizonAlign} style={{ left: `${horizonX / CURVE_W * 100}%` }}>{horizonLabel} {localTime(horizonAt)}</span>}
         <span>{localTime(points[points.length - 1].time)}</span>
       </figcaption>
     </figure>
