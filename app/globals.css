@@ -67,9 +67,9 @@ a { color: inherit; text-decoration: none; }
 .product-edition { padding: 3px 5px; border: 1px solid #dbc6bd; border-radius: 4px; color: #a8543c; font: 700 9px var(--mono); letter-spacing: .08em; }
 
 .workspace-navigation { flex: 0 0 auto; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #eeeeea; display: flex; gap: 2px; }
-.workspace-navigation button { position: relative; height: 32px; padding: 0 11px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 6px; color: var(--ink-soft); cursor: pointer; }
+.workspace-navigation button { position: relative; min-width: 0; height: 32px; padding: 0 11px; overflow: hidden; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; gap: 6px; color: var(--ink-soft); cursor: pointer; }
 .workspace-navigation button svg { flex: 0 0 auto; stroke-width: 1.7; }
-.workspace-navigation button strong { font-size: 12px; font-weight: 620; white-space: nowrap; }
+.workspace-navigation button strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 620; white-space: nowrap; }
 .workspace-navigation button:hover { background: rgba(255,255,255,.7); color: var(--ink); }
 .workspace-navigation button[aria-current="page"] { background: #292c2f; color: #fff; box-shadow: 0 2px 8px rgba(27,30,32,.18); }
 .mode-tooltip { display: none; position: absolute; z-index: 140; top: calc(100% + 9px); left: 50%; width: 208px; padding: 10px 12px; border-radius: 8px; background: #292c2f; color: white; transform: translateX(-50%); gap: 3px; text-align: left; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
